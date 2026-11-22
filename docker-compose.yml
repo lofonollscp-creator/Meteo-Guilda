@@ -34,6 +34,7 @@ services:
     env_file: .env
     environment:
       MG_PREGEN: "1"
+      MG_PUBLIC_URL: ${MG_PUBLIC_URL:-https://radio.guildawork.com}
       MG_REPEATERS_SYNC: "1"
       MG_DATABASE_URL: postgresql://mg:${POSTGRES_PASSWORD}@db:5432/meteoguilda
     depends_on:
@@ -60,6 +61,7 @@ services:
     env_file: .env
     environment:
       MG_API: http://api:8000
+      MG_PUBLIC_URL: ${MG_PUBLIC_URL:-https://radio.guildawork.com}
     expose: ["8001"]
     depends_on: [api]
 volumes:

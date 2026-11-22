@@ -1,5 +1,7 @@
 # Despliegue en el VPS de Hetzner (compartido) · radio.guildawork.com
 
+> **Servidor actual:** el de PRE (`pre.guildawork.com`, 62.238.102.126), en `/home/guilda/meteo-guilda`, publicado por el Caddy del host (`/etc/caddy/sitios.d/radio.caddy`). Para actualizar usa [`desplegar_produccion.sh`](#9-desplegar_produccionsh) y para conectar el MCP, [§10](#10-conectar-el-mcp-con-oauth).
+
 Pensado para convivir con otros trabajos en el mismo servidor: **no abre puertos públicos**, cada servicio tiene su
 límite de memoria (≈ 1,3 GB en total en el peor caso; en reposo ronda los 600–800 MB) y el TLS lo hace el proxy que ya tengas.
 
@@ -19,7 +21,7 @@ El primer arranque descarga el catálogo de repetidores (BrandMeister + HearHam,
 Si `8088` está ocupado, cambia `MG_HTTP_PORT` en `.env` y en el fichero del proxy.
 
 ## 3. Publicar con TLS (elige una)
-**nginx**: `deploy/nginx-radio.guildawork.com.conf` (incluye certbot). **Caddy del host**: `deploy/Caddyfile.host-snippet`.
+**Caddy del host** (el caso de este servidor): `deploy/Caddyfile.host-snippet` → `/etc/caddy/sitios.d/radio.caddy` y `systemctl reload caddy`. **nginx**: `deploy/nginx-radio.guildawork.com.conf` (incluye certbot).
 Comprueba que la cabecera `X-Forwarded-For` llega a la API (la usa para limitar peticiones por IP).
 
 ## 4. Qué se está ejecutando
@@ -42,7 +44,7 @@ Las observaciones APRS se purgan solas a los 7 días. El cuaderno QSL sincroniza
 
 ## 6. Instalar como app y MCP
 - **App (PWA)**: se instala desde el navegador (icono de instalar en la barra lateral; en iPhone, Compartir → Añadir a pantalla de inicio).
-- **MCP**: `claude mcp add --transport http guilda https://radio.guildawork.com/mcp --header "Authorization: Bearer $MG_MCP_TOKEN"`.
+- **MCP**: la URL es `https://radio.guildawork.com/mcp` y se conecta con el inicio de sesión de Guilda Work (OAuth, ver [§10](#10-conectar-el-mcp-con-oauth)). También vale la clave fija: `claude mcp add --transport http guilda https://radio.guildawork.com/mcp --header "Authorization: Bearer $MG_MCP_TOKEN"`.
   Para el cuaderno, pasa la clave del cuaderno en cada herramienta (`key`) o define `MG_LOGBOOK_KEY` en el servicio `mcp`.
 - **API**: `https://radio.guildawork.com/api/openapi.json` (ver también `docs/API.md`).
 
@@ -63,3 +65,36 @@ Con poco tráfico basta con los servicios gratuitos, pero conviene saber de qué
 - *`429` en rutas o cobertura*: límite por IP o cuota diaria de Open-Meteo; se recupera solo.
 - *Sin repetidores*: mira `docker compose logs api | grep repetidores`; fuerza la sincronización con el comando de arriba.
 - *Satélites sin datos*: CelesTrak puede rechazar temporalmente la conexión; se usa la última copia guardada.
+
+## 9. `desplegar_produccion.sh`
+Un solo comando para actualizar el servidor (lo lanza `guilda`; si lo lanzas como root se reejecuta como `guilda`):
+```bash
+cd /home/guilda/meteo-guilda && ./desplegar_produccion.sh
+```
+| Opción | Qué hace |
+|---|---|
+| *(ninguna)* | `git pull --ff-only`, crea el cliente de Hydra si falta, `docker compose up -d --build`, verifica |
+| `--probar` | antes de desplegar pasa los tests en una copia aislada con una PostGIS desechable; si fallan, no despliega |
+| `--sin-pull` | despliega lo que haya en el directorio (cambios locales o commits todavía sin subir a GitHub) |
+| `--solo-verificar` | no cambia nada: comprueba salud, contenedores, web, OAuth, MCP, repetidores y HTTPS público |
+
+Se detiene (sin tocar nada) si falta `.env`, si hay cambios sin commitear, si el repositorio local y GitHub han divergido o si los tests fallan.
+Al final imprime el commit desplegado y el anterior, con la orden para volver atrás. Reinicia el Caddy interno solo cuando cambia `deploy/Caddyfile`
+(tiene el admin desactivado, así que no admite `reload`). **No toca el Caddy del host**: si su bloque difiere de `deploy/Caddyfile.host-snippet`, avisa.
+
+## 10. Conectar el MCP con OAuth
+El servicio hace de servidor de autorización OAuth 2.1 (registro dinámico de clientes, código + PKCE S256, tokens de 1 h con renovación de 90 días
+que rota) y la persona se identifica con su cuenta de Guilda Work a través del Hydra del servidor de identidad (`MG_OIDC_ISSUER`), igual que La cesta.
+- **Enlace para el cliente MCP:** `https://radio.guildawork.com/mcp`.
+  - **Claude (web/escritorio):** Ajustes → Conectores → *Añadir conector personalizado* → pega el enlace → Conectar. Se abre el login de Guilda Work y una pantalla de consentimiento.
+  - **Claude Code:** `claude mcp add --transport http radio-guilda https://radio.guildawork.com/mcp` y después `/mcp` → *Authenticate*.
+- **Flujo:** el cliente descubre el OAuth en `/.well-known/oauth-protected-resource/mcp` y `/.well-known/oauth-authorization-server`, se registra en `/api/oauth/register`,
+  autoriza en `/api/oauth/authorize` (→ login en Hydra → `/api/oauth/callback` → consentimiento), canjea el código en `/api/oauth/token` y usa el token en `/mcp`.
+  El servicio `mcp` valida cada token contra `/api/oauth/introspect` (solo con `MG_ADMIN_TOKEN`; caché de 60 s).
+- **Quién puede entrar:** cualquier cuenta de Guilda Work del servidor de identidad. Para restringirlo, `MG_OAUTH_ALLOWED_EMAILS=a@x.com,b@y.com` en `.env` (se aplica al autorizar) y `docker compose up -d`.
+- **Revocar:** `docker compose exec db psql -U mg meteoguilda -c "UPDATE oauth_tokens SET revoked_at=now() WHERE email='a@x.com'"` (deja de valer en ≤ 60 s). `DELETE FROM oauth_clients` retira clientes registrados.
+- **Hydra:** el cliente público `radio-guilda-web` (PKCE, `skip_consent`, retorno `https://radio.guildawork.com/api/oauth/callback`) lo crea `desplegar_produccion.sh` por la API de administración de Hydra
+  (`MG_HYDRA_ADMIN_URL`, por defecto `http://127.0.0.1:4445`). Si Hydra está en otra máquina, créalo a mano con esos mismos datos.
+- **Cuaderno QSL:** el login identifica a la persona, pero el cuaderno sigue usando su clave secreta (`key` en las herramientas o `MG_LOGBOOK_KEY`).
+- **Mover a PRO:** cambia `MG_OIDC_ISSUER` al Hydra de PRO, vuelve a lanzar `desplegar_produccion.sh` y listo; los tokens emitidos con el otro servidor no valen.
+- **Clave de IA:** `OPENROUTER_API_KEY` reutiliza la de La cesta (copiada a `.env`); si la rotas allí, cámbiala también aquí y `docker compose up -d api`.

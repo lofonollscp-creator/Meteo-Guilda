@@ -67,3 +67,24 @@ CREATE INDEX IF NOT EXISTS qsos_key_at ON qsos (key_hash, qso_at DESC);
 CREATE TABLE IF NOT EXISTS kv_cache (
   k TEXT PRIMARY KEY, v TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- OAuth del MCP (registro dinámico de clientes y tokens con caducidad; ver oauth.py)
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  secret_hash   TEXT,
+  name          TEXT NOT NULL,
+  redirect_uris JSONB NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id                 BIGSERIAL PRIMARY KEY,
+  sub                TEXT NOT NULL,
+  email              TEXT,
+  client_id          TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  access_hash        TEXT NOT NULL UNIQUE,
+  expires_at         TIMESTAMPTZ NOT NULL,
+  refresh_hash       TEXT UNIQUE,
+  refresh_expires_at TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at         TIMESTAMPTZ
+);

@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
+from . import oauth, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
 log = logging.getLogger("api")
@@ -146,6 +146,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Meteo Guilda · Radio Guilda", version="0.3", lifespan=lifespan, docs_url=None, redoc_url=None,
               openapi_url="/api/openapi.json")
 H = lambda r: r.app.state.http  # noqa: E731
+app.include_router(oauth.router)
 
 
 @app.get("/api/health")

@@ -6,9 +6,11 @@ Es un cliente fino de la API REST (mismas cachés y límites). Transportes:
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 import sys
+import time
 from typing import Any, Literal
 
 import httpx
@@ -238,28 +240,68 @@ async def logbook_import_adif(adif_text: str, key: str | None = None) -> dict:
 
 
 class _Bearer:
-    """Middleware ASGI: exige `Authorization: Bearer <MG_MCP_TOKEN>`."""
+    """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
+    /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""
 
-    def __init__(self, app, token: str):
-        self.app, self.token = app, token
+    def __init__(self, app, token: str | None = None, introspect=None, resource_metadata: str | None = None):
+        self.app, self.token, self.introspect, self.resource_metadata = app, token, introspect, resource_metadata
+        self._cache: dict[str, float] = {}
+
+    def _valid(self, bearer: str) -> bool:
+        if not bearer:
+            return False
+        if self.token and hmac.compare_digest(bearer, self.token):
+            return True
+        if not self.introspect:
+            return False
+        now = time.monotonic()
+        if self._cache.get(bearer, 0) > now:
+            return True
+        if self.introspect(bearer):
+            if len(self._cache) > 500:
+                self._cache = {k: v for k, v in self._cache.items() if v > now}
+            self._cache[bearer] = now + 60
+            return True
+        return False
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             auth = dict(scope["headers"]).get(b"authorization", b"").decode()
-            if not hmac.compare_digest(auth, f"Bearer {self.token}"):
-                await send({"type": "http.response.start", "status": 401, "headers": [(b"content-type", b"text/plain")]})
+            bearer = auth[7:] if auth.startswith("Bearer ") else ""
+            if not await asyncio.to_thread(self._valid, bearer):
+                headers = [(b"content-type", b"text/plain")]
+                if self.resource_metadata:
+                    headers.append((b"www-authenticate", f'Bearer resource_metadata="{self.resource_metadata}"'.encode()))
+                await send({"type": "http.response.start", "status": 401, "headers": headers})
                 await send({"type": "http.response.body", "body": b"Unauthorized"})
                 return
         await self.app(scope, receive, send)
 
 
+def _introspector():
+    """Función que pregunta a la API si un token OAuth es válido; None si el OAuth no está configurado."""
+    if not os.environ.get("MG_OIDC_ISSUER") or not os.environ.get("MG_ADMIN_TOKEN"):
+        return None
+    api, admin = os.environ.get("MG_API", "http://127.0.0.1:8000"), os.environ["MG_ADMIN_TOKEN"]
+
+    def check(bearer: str) -> bool:
+        try:
+            r = httpx.post(f"{api}/api/oauth/introspect", data={"token": bearer}, headers={"X-Admin-Token": admin}, timeout=5)
+            return r.status_code == 200 and bool(r.json().get("active"))
+        except Exception:  # noqa: BLE001
+            return False
+    return check
+
+
 def http_app():
-    token = os.environ.get("MG_MCP_TOKEN")
-    if not token:
-        raise SystemExit("Define MG_MCP_TOKEN para exponer el MCP por HTTP")
+    token = os.environ.get("MG_MCP_TOKEN") or None
+    introspect = _introspector()
+    if not token and not introspect:
+        raise SystemExit("Define MG_OIDC_ISSUER (OAuth) o MG_MCP_TOKEN para exponer el MCP por HTTP")
     app = mcp.streamable_http_app(host="0.0.0.0", transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=False))
-    return _Bearer(app, token)
+    public = os.environ.get("MG_PUBLIC_URL", "https://radio.guildawork.com").rstrip("/")
+    return _Bearer(app, token, introspect, f"{public}/.well-known/oauth-protected-resource/mcp" if introspect else None)
 
 
 if __name__ == "__main__":

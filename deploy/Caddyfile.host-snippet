@@ -1,7 +1,18 @@
-# Si el proxy del VPS es Caddy en lugar de nginx: añade este bloque a su Caddyfile.
+# Caddy del host (servidor de PRE): va en /etc/caddy/sitios.d/radio.caddy (fuera del repo de Guilda Work) y se activa con `systemctl reload caddy`.
+# Si el host no usa CrowdSec, quita las líneas `route { crowdsec … }` y deja solo el reverse_proxy.
+# Las cabeceras de la app (CSP, etc.) las pone el Caddy interno; aquí solo TLS, HSTS, CrowdSec y proxy.
 radio.guildawork.com {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:8088 {
-		header_up X-Forwarded-For {remote_host}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+		-X-Powered-By
+		-Via
+	}
+	route {
+		crowdsec
+		reverse_proxy 127.0.0.1:8088 {
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 }

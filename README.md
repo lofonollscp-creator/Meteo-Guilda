@@ -31,4 +31,4 @@ docker run -d --name mg-db -e POSTGRES_USER=mg -e POSTGRES_PASSWORD=mg -e POSTGR
 cd backend && pip install -e '.[dev]'
 MG_DATABASE_URL=postgresql://mg:mg@127.0.0.1:5432/meteoguilda_test python -m pytest   # los tests de BD se omiten si no hay PostGIS
 ```
-Producción: `docker compose up -d --build` (ver docs/DEPLOY.md).
+Producción: `./desplegar_produccion.sh` (ver [docs/DEPLOY.md](docs/DEPLOY.md), §9). MCP: `https://radio.guildawork.com/mcp` con inicio de sesión de Guilda Work (§10).
