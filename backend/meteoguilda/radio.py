@@ -116,12 +116,17 @@ async def propagation(client: httpx.AsyncClient, lat: float, lon: float) -> dict
 SWPC = "https://services.swpc.noaa.gov"
 
 
+def parse_kp(rows) -> float | None:
+    """NOAA publica una lista de objetos {time_tag, Kp,...} (antes, lista de listas con cabecera)."""
+    last = rows[-1]
+    return float(last["Kp"] if isinstance(last, dict) else last[1])
+
+
 async def solar(client: httpx.AsyncClient) -> dict:
     kp = sfi = None
     try:
         r = await client.get(f"{SWPC}/products/noaa-planetary-k-index.json", timeout=15)
-        rows = r.json()
-        kp = float(rows[-1][1])
+        kp = parse_kp(r.json())
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -145,46 +150,73 @@ def hf_outlook(kp: float | None, sfi: float | None) -> dict:
 
 
 # ---------- Repetidores ----------
+_INS = ["name", "callsign", "band", "freq_mhz", "shift_khz", "tone_hz", "mode", "height_m", "range_km", "source", "network",
+        "color_code", "dmr_id", "power_w", "city", "website"]
+
+
 def upsert_repeater(r: dict) -> int:
+    data = {c: None for c in _INS} | {"mode": "FM", "height_m": 10, "range_km": 40} | r
+    cols = ", ".join(_INS)
+    vals = ", ".join(f"%({c})s" for c in _INS)
+    upd = ", ".join(f"{c} = EXCLUDED.{c}" for c in _INS if c not in ("callsign", "freq_mhz"))
     with pool().connection() as con:
         row = con.execute(
-            "INSERT INTO repeaters (name, callsign, band, freq_mhz, shift_khz, tone_hz, mode, height_m, range_km, source, geom) "
-            "VALUES (%(name)s, %(callsign)s, %(band)s, %(freq_mhz)s, %(shift_khz)s, %(tone_hz)s, %(mode)s, %(height_m)s, "
-            "%(range_km)s, %(source)s, ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography) "
-            "ON CONFLICT (callsign, freq_mhz) DO UPDATE SET name = EXCLUDED.name, shift_khz = EXCLUDED.shift_khz, "
-            "tone_hz = EXCLUDED.tone_hz, mode = EXCLUDED.mode, height_m = EXCLUDED.height_m, geom = EXCLUDED.geom "
-            "RETURNING id", {"band": None, "shift_khz": None, "tone_hz": None, "mode": "FM", "height_m": 10,
-                             "range_km": 40, "source": None, "callsign": None, **r}).fetchone()
+            f"INSERT INTO repeaters ({cols}, geom) VALUES ({vals}, ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography) "
+            f"ON CONFLICT (callsign, freq_mhz) DO UPDATE SET {upd}, geom = EXCLUDED.geom, updated_at = now() RETURNING id", data).fetchone()
     return row["id"]
 
 
-_REP_SEL = ("id, name, callsign, band, freq_mhz, shift_khz, tone_hz, mode, height_m, range_km, "
-            "ST_Y(geom::geometry) AS lat, ST_X(geom::geometry) AS lon, coverage IS NOT NULL AS has_coverage")
+_REP_SEL = ("id, name, callsign, band, freq_mhz, shift_khz, tone_hz, mode, network, color_code, dmr_id, power_w, height_m, range_km, "
+            "city, website, source, last_seen, ST_Y(geom::geometry) AS lat, ST_X(geom::geometry) AS lon, coverage IS NOT NULL AS has_coverage")
 
 
-def list_repeaters(bbox: tuple[float, float, float, float] | None = None, band: str | None = None,
-                   with_coverage: bool = False) -> list[dict]:
-    where, args = ["TRUE"], []
+def list_repeaters(bbox: tuple[float, float, float, float] | None = None, band: str | None = None, mode: str | None = None,
+                   q: str | None = None, limit: int = 3000, with_coverage: bool = False) -> list[dict]:
     from .store import clamp_bbox
+    where, args = ["TRUE"], []
     bb = clamp_bbox(bbox)
     if bb:
         where.append("geom && ST_MakeEnvelope(%s, %s, %s, %s, 4326)::geography")
         args += [bb[1], bb[0], bb[3], bb[2]]
     if band:
-        where.append("band = %s")
-        args.append(band)
+        where.append("band = %s"); args.append(band)
+    if mode:
+        where.append("mode = %s"); args.append(mode.upper() if mode.lower() != "d-star" else "D-STAR")
+    if q:
+        where.append("(callsign ILIKE %s OR name ILIKE %s OR city ILIKE %s)"); args += [f"%{q}%"] * 3
     cov = ", ST_AsGeoJSON(coverage::geometry)::json AS coverage_geojson" if with_coverage else ""
     with pool().connection() as con:
-        return con.execute(f"SELECT {_REP_SEL}{cov} FROM repeaters WHERE {' AND '.join(where)} ORDER BY freq_mhz", args).fetchall()
+        return con.execute(f"SELECT {_REP_SEL}{cov} FROM repeaters WHERE {' AND '.join(where)} ORDER BY freq_mhz LIMIT %s",
+                           args + [min(limit, 5000)]).fetchall()
 
 
-def repeaters_near(lat: float, lon: float, km: float = 60) -> list[dict]:
+def get_repeater(rep_id: int, with_coverage: bool = True) -> dict | None:
+    cov = ", ST_AsGeoJSON(coverage::geometry)::json AS coverage_geojson, coverage_at" if with_coverage else ""
+    with pool().connection() as con:
+        return con.execute(f"SELECT {_REP_SEL}{cov} FROM repeaters WHERE id = %s", [rep_id]).fetchone()
+
+
+def repeater_stats() -> dict:
+    with pool().connection() as con:
+        by_mode = con.execute("SELECT mode, count(*) AS n FROM repeaters GROUP BY mode ORDER BY n DESC").fetchall()
+        by_band = con.execute("SELECT band, count(*) AS n FROM repeaters GROUP BY band ORDER BY n DESC").fetchall()
+        r = con.execute("SELECT count(*) AS n, max(updated_at) AS updated FROM repeaters").fetchone()
+    return {"total": r["n"], "actualizado": r["updated"], "por_modo": by_mode, "por_banda": by_band,
+            "fuentes": "BrandMeister (api.brandmeister.network) y HearHam (hearham.com)"}
+
+
+def repeaters_near(lat: float, lon: float, km: float = 60, mode: str | None = None, band: str | None = None,
+                   limit: int = 60) -> list[dict]:
+    where, args = ["ST_DWithin(geom, p.g, %s)"], [km * 1000]
+    if mode:
+        where.append("mode = %s"); args.append(mode.upper() if mode.lower() != "d-star" else "D-STAR")
+    if band:
+        where.append("band = %s"); args.append(band)
     with pool().connection() as con:
         return con.execute(
-            f"SELECT {_REP_SEL}, ST_Distance(geom, p.g) / 1000 AS dist_km, "
-            "COALESCE(ST_Intersects(coverage, p.g), FALSE) AS covers_point FROM repeaters, "
-            "(SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography AS g) p "
-            "WHERE ST_DWithin(geom, p.g, %s) ORDER BY dist_km", [lon, lat, km * 1000]).fetchall()
+            f"SELECT {_REP_SEL}, ST_Distance(geom, p.g) / 1000 AS dist_km, COALESCE(ST_Intersects(coverage, p.g), FALSE) AS covers_point "
+            "FROM repeaters, (SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography AS g) p "
+            f"WHERE {' AND '.join(where)} ORDER BY dist_km LIMIT %s", [lon, lat] + args + [limit]).fetchall()
 
 
 def repeaters_along(coords: list[tuple[float, float]]) -> list[dict]:
@@ -225,18 +257,18 @@ def coverage_ring(lat: float, lon: float, limits_km: list[float]) -> list[tuple[
     return ring + [ring[0]]
 
 
-async def compute_coverage(client: httpx.AsyncClient, rep_id: int, azimuths: int = 36, step_km: float = 1.0) -> dict:
+async def compute_coverage(client: httpx.AsyncClient, rep_id: int, azimuths: int = 24, step_km: float = 2.0) -> dict:
     with pool().connection() as con:
         rep = con.execute(f"SELECT {_REP_SEL} FROM repeaters WHERE id = %s", [rep_id]).fetchone()
     if not rep:
         raise KeyError(rep_id)
-    rng = float(rep["range_km"] or 40)
+    rng = min(float(rep["range_km"] or 40), 60.0)
     dists = [step_km * (j + 1) for j in range(int(rng / step_km))]
     pts = [(rep["lat"], rep["lon"])] + [destination(rep["lat"], rep["lon"], 360 * a / azimuths, d)
                                          for a in range(azimuths) for d in dists]
     elev = await openmeteo.elevations(pts, client)
     tx, rest = elev[0], elev[1:]
-    limits = [radial_limit(tx, float(rep["height_m"] or 10), dists, rest[a * len(dists):(a + 1) * len(dists)])
+    limits = [radial_limit(tx, float(rep["height_m"] or 10), dists, rest[a * len(dists):(a + 1) * len(dists)], max_gap=1)
               for a in range(azimuths)]
     ring = coverage_ring(rep["lat"], rep["lon"], limits)
     wkt = "POLYGON((" + ",".join(f"{lo:.5f} {la:.5f}" for la, lo in ring) + "))"
@@ -259,6 +291,12 @@ def _cli(argv: list[str]) -> None:
                              "lat": float(row["lat"]), "lon": float(row["lon"]), "source": row.get("source") or argv[1]})
             n += 1
         print(f"{n} repetidores importados")
+    elif argv[:1] == ["sync"]:
+        from . import repeater_sources
+        async def run_sync():
+            async with httpx.AsyncClient(headers={"User-Agent": "RadioGuilda/0.3"}) as c:
+                print(await repeater_sources.sync(c))
+        asyncio.run(run_sync())
     elif argv[:1] == ["coverage"]:
         async def run():
             async with httpx.AsyncClient() as c:
@@ -268,7 +306,8 @@ def _cli(argv: list[str]) -> None:
                         await asyncio.sleep(2)
         asyncio.run(run())
     else:
-        print("Uso: python -m meteoguilda.radio import repetidores.csv | coverage")
+        print("Uso: python -m meteoguilda.radio sync | import repetidores.csv | coverage")
+    db.close()
 
 
 if __name__ == "__main__":

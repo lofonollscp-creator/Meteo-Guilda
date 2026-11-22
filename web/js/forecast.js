@@ -1,14 +1,11 @@
 import { $, $$, api, esc, nf, nf1, t0, LS, debounce, compass, wd, hh, slug } from "./util.js";
-import { renderCharts, renderStrip, sparkline, ramp, SCALES } from "./charts.js";
+import { renderCharts, renderStrip, sparkline, ramp, SCALES, renderRose, moonSvg, sunArc } from "./charts.js";
+import { icon } from "./icons.js";
+import { pushSettings } from "./sync.js";
 
 let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null;
-const ICON = {
-  star: '<svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
-  pin: '<svg viewBox="0 0 24 24"><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 14v7"/></svg>',
-  link: '<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/></svg>',
-  json: '<svg viewBox="0 0 24 24"><path d="M8 4C5 4 6 9 4 12c2 3 1 8 4 8M16 4c3 0 2 5 4 8-2 3-1 8-4 8"/></svg>',
-};
-const saveFavs = () => LS.set("mg-favs", favs);
+const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
+const saveFavs = () => { LS.set("mg-favs", favs); pushSettings(); };
 const favKey = (lat, lon) => slug(lat, lon);
 const findFav = (lat, lon) => favs.find((f) => f.key === favKey(lat, lon));
 const sortedFavs = () => [...favs].sort((a, b) => (b.pinned | 0) - (a.pinned | 0));
@@ -16,15 +13,15 @@ const sortedFavs = () => [...favs].sort((a, b) => (b.pinned | 0) - (a.pinned | 0
 export function mount(c) {
   ctx = c;
   ctx.cola.innerHTML = `
-    <div class="cola-head"><h2>Previsión</h2><p>Modelos abiertos + balizas reales</p></div>
-    <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg>
+    ${ctx.brand("forecast")}
+    <div class="search">${icon("search", 16)}
       <input id="q" type="search" placeholder="Buscar cualquier lugar…" autocomplete="off" aria-label="Buscar lugar"><kbd>/</kbd>
       <div class="results" id="results" hidden></div></div>
+    <a class="group-label home-link" href="#/forecast">Inicio${icon("home", 14)}</a>
     <div id="favs"></div>
     <div class="group-label">Lugares principales</div>
     <ul class="places" id="places" role="list"></ul>
     <p class="cola-note">Resumen de la media de 4 modelos. Los lugares guardados quedan en este dispositivo.</p>`;
-  ctx.colb.innerHTML = '<p class="empty">Elige un lugar de la lista, busca uno nuevo o toca el mapa.</p>';
   ctx.stations(true);
   ctx.onMapClick = ({ lat, lng }) => { location.hash = `#/forecast/p/${lat.toFixed(4)},${lng.toFixed(4)},Punto del mapa`; };
   ctx.mapCtl('<button class="chip" id="fit" type="button">Ver los 6 lugares</button><span class="chip chip-ghost">Toca el mapa para consultar un punto</span>');
@@ -32,6 +29,7 @@ export function mount(c) {
   $("#places").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
   $("#favs").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
   setupSearch();
+  $(".home-link").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", "#/forecast"); home(); });
   renderPlaces(); renderFavs();
   api("/api/places").then((p) => { places = p; renderPlaces(); drawPins(); if (!sel) ctx.fit(places.map((x) => [x.lon, x.lat])); }).catch(() => {});
   loadFavSnaps();
@@ -42,7 +40,7 @@ export function unmount() { ctx.stations(false); }
 function placeRow(go, name, area, snap, { current, pinned } = {}) {
   const n = snap;
   return `<li><button class="place" data-go="${esc(go)}" aria-current="${!!current}">
-    <span class="place-name">${pinned ? ICON.pin.replace("<svg", '<svg class="pinned"') : ""}${esc(name)}</span>
+    <span class="place-name">${pinned ? icon("pin", 12, "pinned") : ""}${esc(name)}</span>
     <span class="place-temp"><span class="num">${n ? t0(n.temp_c) + "°" : '<span class="skeleton">00°</span>'}</span></span>
     <span class="place-area">${esc(area)}</span>
     <span class="place-meta">${n ? sparkline(n.spark) + `<span class="num">racha ${n.gust_kmh} · lluvia ${nf1.format(n.rain_24h_mm)}</span>` : ""}</span></button></li>`;
@@ -136,7 +134,7 @@ function setupSearch() {
 export function show(parts) {
   if (!parts.length) {
     if (matchMedia("(max-width:760px)").matches) { sel = null; ctx.pane("list"); renderPlaces(); renderFavs(); return; }
-    parts = ["garos"];
+    return home();
   }
   const my = ++req;
   let url, item;
@@ -201,7 +199,7 @@ function render(d) {
   const area = lug.area ? `${esc(lug.area)} · ${esc(lug.region)}${alt}` : `${la.toFixed(3)}°, ${lo.toFixed(3)}°${alt}`;
   const aiBadge = d.origen === "ia" ? `Lectura de IA · ${esc((d.modelo_ia || "").split("/").pop().replace(":free", ""))}` : "Resumen automático (sin IA)";
   const tint = ramp(SCALES.temp, now.temp_c.mean).replace("rgb(", "rgba(").replace(")", ",.16)");
-  const press = T.map((x) => x.presion_hpa?.mean), trend = press[4] != null && press[0] != null ? (press[4] - press[0] > 1 ? "↑ subiendo" : press[4] - press[0] < -1 ? "↓ bajando" : "→ estable") : "";
+  const press = T.map((x) => x.presion_hpa?.mean), trend = press[4] != null && press[0] != null ? (press[4] - press[0] > 1 ? `${icon("up", 13)} subiendo` : press[4] - press[0] < -1 ? `${icon("down", 13)} bajando` : `${icon("right", 13)} estable`) : "";
   const gmin = Math.min(...c.dias.map((x) => x.temp_min_c ?? 99)), gmax = Math.max(...c.dias.map((x) => x.temp_max_c ?? -99));
   const dayRows = c.dias.map((x) => {
     const l = ((x.temp_min_c - gmin) / (gmax - gmin || 1)) * 100, w = Math.max(6, ((x.temp_max_c - x.temp_min_c) / (gmax - gmin || 1)) * 100);
@@ -246,6 +244,10 @@ function render(d) {
     <div class="strip" id="strip"></div><div id="charts"></div>
     <div class="legend"><span><i style="border-color:var(--accent)"></i>media de modelos</span><span><i style="border-color:var(--wind);border-top-style:dashed"></i>racha</span><span>Flechas: hacia dónde sopla</span></div></section>
 
+  <section class="sec"><div class="label">Viento y cielo</div><div class="grid2">
+    <div class="card rosebox"><h3>${icon("compass", 16)} Rosa de los vientos <span class="sub">próximos 5 días</span></h3><div id="rose"></div><p class="empty" style="font-size:12px;margin-top:6px">Cada pétalo: de dónde sopla y cuánto tiempo; color = velocidad media.</p></div>
+    <div class="card sunbox" id="skybox"><h3>${icon("sun", 16)} Sol y Luna</h3><div class="skeleton" style="height:100px"></div></div></div></section>
+
   <section class="sec"><div class="label">Observaciones reales <em>balizas APRS con control de calidad</em></div>
     ${c.estaciones_cercanas?.length ? `<div class="tablewrap"><table><thead><tr><th>Estación</th><th>Dist.</th><th>°C</th><th>Viento</th><th>Racha</th><th>HR</th><th>hPa</th></tr></thead><tbody>
       ${c.estaciones_cercanas.map((s) => `<tr><td>${esc(s.id)}</td><td class="num">${s.dist_km} km</td><td class="num">${s.temp_c != null ? nf1.format(s.temp_c) : "–"}</td><td class="num">${s.viento_kmh ?? "–"}</td><td class="num">${s.racha_kmh ?? "–"}</td><td class="num">${s.humedad_pct != null ? s.humedad_pct + "%" : "–"}</td><td class="num">${s.presion_hpa != null ? nf1.format(s.presion_hpa) : "–"}</td></tr>`).join("")}</tbody></table></div>`
@@ -266,6 +268,16 @@ function render(d) {
   });
   $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); }));
   drawCharts(T, mountain);
+  renderRose($("#rose"), T);
+  api(`/api/astro?lat=${la}&lon=${lo}`).then((a) => {
+    const box = $("#skybox"); if (!box) return;
+    const sr = a.orto && new Date(a.orto), ss = a.ocaso && new Date(a.ocaso), t = (x) => (x ? new Date(x).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "–");
+    box.innerHTML = `<h3>${icon("sun", 16)} Sol y Luna</h3>${sr && ss ? sunArc(sr, ss) : ""}
+      <div class="kv"><span>Orto / ocaso</span><span>${t(a.orto)} / ${t(a.ocaso)}</span></div><div class="kv"><span>Horas de luz</span><span>${a.horas_de_luz} h</span></div>
+      <div class="kv"><span>Crepúsculo civil</span><span>${t(a.crepusculo_civil_inicio)} – ${t(a.crepusculo_civil_fin)}</span></div>
+      <div class="row" style="margin-top:10px;gap:12px">${moonSvg(a.luna.edad_dias, 46)}<span style="font-size:13px">${esc(a.luna.fase)}<br><span style="color:var(--ink-3)">${a.luna.iluminacion_pct}% iluminada</span></span></div>
+      <p class="empty" style="font-size:12px;margin-top:6px">Horas de tu dispositivo.</p>`;
+  }).catch(() => {});
 }
 
 function drawCharts(all, mountain) {
@@ -288,4 +300,43 @@ function drawCharts(all, mountain) {
     ...(mountain && T.some((x) => x.isocero_m) ? [{ title: "Isocero", sub: "m · altitud de la isoterma 0 °C", draw: "line", H: 120, ticks: 3, range: () => { const v = T.map((x) => x.isocero_m?.mean).filter((x) => x != null); return [Math.min(...v) - 100, Math.max(...v) + 100]; }, mean: g("isocero_m"), tip: (i) => `${wd(T[i].time)} ${hh(T[i].time)} · <b>${nf.format(T[i].isocero_m?.mean)} m</b>` }] : []),
   ];
   renderCharts($("#charts"), T, defs, axisFor);
+}
+
+/* ---------- Inicio: resumen del día ---------- */
+const riskOf = (n) => (!n ? null : n.gust_kmh >= 70 ? [2, "Viento fuerte"] : n.gust_kmh >= 45 || n.rain_24h_mm >= 10 ? [1, "Precaución"] : [0, "Estable"]);
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "–");
+
+async function home() {
+  sel = null; req++;
+  renderPlaces(); renderFavs(); drawPins();
+  if (places.length) ctx.fit(places.map((p) => [p.lon, p.lat]));
+  ctx.pane("detail");
+  const qth = LS.get("mg-qth", null), at = qth || { lat: places[0]?.lat ?? 42.7, lon: places[0]?.lon ?? 0.85 };
+  const my = req;
+  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Hoy</h1><p>${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p></div></div>
+    <section class="sec" style="margin-top:22px"><div class="label">Tus lugares</div><div class="pgrid" id="pg">${Array.from({ length: 6 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div></section>
+    <section class="sec"><div class="label">Radio ahora <em><a href="#/radio">abrir Radio Guilda</a></em></div><div class="grid2" id="radio-now"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:120px"></div></div></section>
+    <section class="sec"><div class="label">Atajos</div><div class="quick">
+      <a href="#/routes">${icon("route")}Planificar ruta</a><a href="#/radio/repetidores">${icon("tower")}Repetidores cerca</a>
+      <a href="#/radio/satelites">${icon("satellite")}Pasos de satélites</a><a href="#/radio/portatil">${icon("tent")}Salir a operar</a>
+      <a href="#/radio/qsl">${icon("log")}Cuaderno QSL</a><a href="#/learn">${icon("book")}Aprende</a></div></section>`;
+  const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="pcard" data-go="${esc(x.go)}"><span class="pn">${esc(x.name)}</span><span class="pa">${esc(x.area)}</span>
+      <span class="pt"><span class="num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</span>
+      ${x.snap ? sparkline(x.snap.spark, 180, 34) + `<span class="pm"><span>racha ${x.snap.gust_kmh} km/h</span><span>${nf1.format(x.snap.rain_24h_mm)} mm</span></span>` : ""}</button>`; }).join("");
+  const all = [...places.map((p) => ({ go: `#/forecast/${p.slug}`, name: p.name, area: p.area, snap: p.now })), ...sortedFavs().map((f) => ({ go: favHash(f), name: f.name, area: f.sub || "Mi lugar", snap: snaps[f.key] }))];
+  const draw = () => { const g = $("#pg"); if (!g) return; g.innerHTML = pcards(all); g.onclick = (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; }; };
+  if (places.length) draw(); else api("/api/places").then((p) => { places = p; all.push(...places.map((x) => ({ go: `#/forecast/${x.slug}`, name: x.name, area: x.area, snap: x.now }))); if (my === req) draw(); });
+  const [solar, astro, prop] = await Promise.all([api("/api/solar").catch(() => null), api(`/api/astro?lat=${at.lat}&lon=${at.lon}`).catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null)]);
+  if (my !== req || !$("#radio-now")) return;
+  const w = prop?.peor, cat = { conducto: "lv2", "super-refracción": "lv1" }[w?.cat] || "lv0";
+  const sr = astro?.orto && new Date(astro.orto), ss = astro?.ocaso && new Date(astro.ocaso);
+  $("#radio-now").innerHTML = `
+    <div class="card"><h3>${icon("wave", 16)} Propagación</h3>
+      <div class="kv"><span>HF · Kp / SFI</span><span>${solar?.kp ?? "–"} / ${solar?.sfi ?? "–"}</span></div>
+      <div class="kv"><span>Tropo VHF/UHF (72 h)</span><span class="pill ${cat}"><i></i>${w ? esc(w.cat) : "–"}</span></div>
+      <p class="empty" style="margin-top:8px">${esc((solar?.resumen || [])[1] || "Datos de NOAA SWPC y modelos meteorológicos.")}</p></div>
+    <div class="card sunbox"><h3>${icon("sun", 16)} Sol y Luna ${qth ? "en tu QTH" : ""}</h3>
+      ${sr && ss ? sunArc(sr, ss) : ""}
+      <div class="row between" style="font-size:13px"><span>Orto <b class="num">${clock(astro.orto)}</b></span><span>Ocaso <b class="num">${clock(astro.ocaso)}</b></span></div>
+      ${astro ? `<div class="row" style="margin-top:10px;gap:12px">${moonSvg(astro.luna.edad_dias, 44)}<span style="font-size:13px">${esc(astro.luna.fase)}<br><span style="color:var(--ink-3)">${astro.luna.iluminacion_pct}% iluminada</span></span></div>` : ""}</div>`;
 }

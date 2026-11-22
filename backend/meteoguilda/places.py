@@ -1,7 +1,8 @@
 """Lugares foco del proyecto.
 
-⚠️ Coordenadas aproximadas (±2–3 km): verificar con el mapa y corregir aquí.
-Open-Meteo aplica su propia elevación DEM al punto.
+Coordenadas verificadas el 2026-11-22 contrastando al menos dos fuentes independientes
+(geocodificador de Open-Meteo y Nominatim/OpenStreetMap; Bresca además con Wikipedia y el
+registro del patrimonio de la parroquia de Sant Miquel). Open-Meteo aplica su propia elevación DEM.
 """
 from __future__ import annotations
 
@@ -26,17 +27,17 @@ class Place:
 
 
 PLACES: list[Place] = [
-    Place("garos", "Garòs", "Naut Aran · Val d'Aran", "Catalunya", 42.7100, 0.8600,
+    Place("garos", "Garòs", "Naut Aran · Val d'Aran", "Catalunya", 42.7000, 0.8470,
           "montaña", METEOCAT, "Meteocat"),
-    Place("premia-de-mar", "Premià de Mar", "Maresme", "Catalunya", 41.4903, 2.3637,
+    Place("premia-de-mar", "Premià de Mar", "Maresme", "Catalunya", 41.4922, 2.3630,
           "costa", METEOCAT, "Meteocat"),
-    Place("tortoles-de-esgueva", "Tórtoles de Esgueva", "Burgos", "Castilla y León", 41.9300, -3.9700,
+    Place("tortoles-de-esgueva", "Tórtoles de Esgueva", "Burgos", "Castilla y León", 41.8162, -4.0230,
           "llanura", AEMET, "AEMET"),
-    Place("bresca", "Bresca", "Baix Pallars · Pallars Sobirà", "Catalunya", 42.3360, 1.0800,
+    Place("bresca", "Bresca", "Baix Pallars · Pallars Sobirà", "Catalunya", 42.3114, 1.0683,
           "montaña", METEOCAT, "Meteocat"),
-    Place("la-garrovilla", "La Garrovilla", "Badajoz", "Extremadura", 38.9500, -6.4750,
+    Place("la-garrovilla", "La Garrovilla", "Badajoz", "Extremadura", 38.9200, -6.4770,
           "llanura", AEMET, "AEMET"),
-    Place("bagneres-de-bigorre", "Bagnères-de-Bigorre", "Hautes-Pyrénées", "Occitanie", 43.0647, 0.1494,
+    Place("bagneres-de-bigorre", "Bagnères-de-Bigorre", "Hautes-Pyrénées", "Occitanie", 43.0654, 0.1509,
           "montaña", METEOFRANCE, "Météo-France Vigilance"),
 ]
 BY_SLUG = {p.slug: p for p in PLACES}

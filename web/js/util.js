@@ -11,6 +11,8 @@ export const LS = {
 };
 export const api = async (url, opts) => {
   const r = await fetch(url, opts);
+  const off = document.getElementById("offline");
+  if (off) off.hidden = !r.headers.get("x-from-cache");
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(typeof e.detail === "string" ? e.detail : `Error ${r.status}`); }
   return r.json();
 };

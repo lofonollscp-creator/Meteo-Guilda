@@ -1,0 +1,69 @@
+// Iconos propios de Guilda: rejilla 24 px, trazo 1,7, extremos redondeados. Un punto «de señal» firma varios de ellos.
+const P = {
+  cloud: '<path d="M7.5 18.5h9.2a4 4 0 0 0 .6-7.95A5.6 5.6 0 0 0 6.6 9.9a4.3 4.3 0 0 0 .9 8.6Z"/>',
+  route: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h6.5a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6H16"/>',
+  antenna: '<circle cx="12" cy="10.5" r="1.7"/><path d="M12 12.2V21M8.5 21h7M8.4 7.4a5 5 0 0 0 0 6.2M15.6 7.4a5 5 0 0 1 0 6.2M5.4 4.4a9.2 9.2 0 0 0 0 12.2M18.6 4.4a9.2 9.2 0 0 1 0 12.2"/>',
+  book: '<path d="M3 5.5h6a3 3 0 0 1 3 3V20a2 2 0 0 0-2-2H3zM21 5.5h-6a3 3 0 0 0-3 3V20a2 2 0 0 1 2-2h7z"/>',
+  sun: '<circle cx="12" cy="12" r="3.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>',
+  moon: '<path d="M20 14.6A8.2 8.2 0 0 1 9.4 4 8.2 8.2 0 1 0 20 14.6Z"/>',
+  star: '<path d="m12 3.2 2.6 5.5 6 .8-4.4 4.2 1.1 6-5.3-2.9-5.3 2.9 1.1-6L3.4 9.5l6-.8z"/>',
+  pin: '<path d="M9 3.5h6l-.9 5.6 3 3.4v1.5H6.9v-1.5l3-3.4zM12 14v6.5"/>',
+  link: '<path d="M10.2 13.8a3.6 3.6 0 0 0 5.1 0l2.7-2.7a3.6 3.6 0 0 0-5.1-5.1l-.9.9M13.8 10.2a3.6 3.6 0 0 0-5.1 0L6 12.9a3.6 3.6 0 0 0 5.1 5.1l.9-.9"/>',
+  code: '<path d="M8.5 5.5C6 5.5 6.8 9.8 5 12c1.8 2.2 1 6.5 3.5 6.5M15.5 5.5c2.5 0 1.7 4.3 3.5 6.5-1.8 2.2-1 6.5-3.5 6.5"/>',
+  search: '<circle cx="11" cy="11" r="6.3"/><path d="m20 20-4.2-4.2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  x: '<path d="m6 6 12 12M18 6 6 18"/>',
+  swap: '<path d="M7 4v14M3.5 14.5 7 18l3.5-3.5M17 20V6M13.5 9.5 17 6l3.5 3.5"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  right: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  upload: '<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>',
+  trash: '<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7M10.5 11v5M13.5 11v5"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  map: '<path d="m9 4.5-5.5 2v13l5.5-2 6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
+  list: '<path d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4" cy="6.5" r=".9"/><circle cx="4" cy="12" r=".9"/><circle cx="4" cy="17.5" r=".9"/>',
+  detail: '<path d="M6 3.5h8l4 4V20.5H6z"/><path d="M14 3.5v4h4M9 12h6M9 16h4"/>',
+  satellite: '<rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.1" transform="rotate(45 12 12)"/><path d="M4.2 8.2 8 4.4l2 2L6.2 10.2zM13.8 17.8l3.8-3.8 2 2-3.8 3.8zM12 12l-1.8-1.8M12 12l1.8 1.8"/><path d="M17.5 4a4.5 4.5 0 0 1 2.5 2.5M16 7a2 2 0 0 1 1 1"/>',
+  tower: '<path d="M12 3.5v4.2M9.2 7.7h5.6L18 20.5H6zM8.2 13.5h7.6M7 17.5h10"/><path d="M7.6 4.6a6 6 0 0 0 0 5M16.4 4.6a6 6 0 0 1 0 5"/>',
+  wave: '<path d="M2.5 12c2-5 3.7-5 5.5 0s3.5 5 5.5 0 3.5-5 5.5 0 .8 2.4 1 3"/>',
+  tent: '<path d="M2.8 20.5 12 4.5l9.2 16zM12 4.5v16M8.3 20.5 12 13.5l3.7 7"/>',
+  log: '<path d="M6.5 3.5h11a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1h-11zM6.5 3.5v17M10.5 8h5M10.5 12h5M10.5 16h2.5"/>',
+  card: '<rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="M7 10h6M7 14h4"/><path d="m15.8 12.6 1.1 1.1 2.1-2.3"/>',
+  tools: '<path d="M14.4 6.2a4 4 0 0 0-5 5L3.8 16.8l3.4 3.4 5.6-5.6a4 4 0 0 0 5-5l-2.6 2.6-2.3-.5-.5-2.3z"/>',
+  info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.2M12 7.8v.01"/>',
+  warn: '<path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.4M12 17.2v.01"/>',
+  wind: '<path d="M3 9h10.5a2.7 2.7 0 1 0-2.6-3.3M3 14.5h14.5a2.7 2.7 0 1 1-2.6 3.3M3 19h6"/>',
+  drop: '<path d="M12 3.5s6 6.2 6 10.5a6 6 0 0 1-12 0c0-4.3 6-10.5 6-10.5z"/>',
+  compass: '<circle cx="12" cy="12" r="8.7"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+  mountain: '<path d="M2.8 19.5 9.5 7l4 7 2.2-3.2 5.5 8.7z"/>',
+  car: '<path d="M4.5 16.5v-4.2l1.8-4.6h11.4l1.8 4.6v4.2zM4.5 12.3h15M4.5 16.5v2.3h2.4v-2.3M17.1 16.5v2.3h2.4v-2.3"/><circle cx="8" cy="14.4" r=".8"/><circle cx="16" cy="14.4" r=".8"/>',
+  walk: '<circle cx="13" cy="4.6" r="1.7"/><path d="m11 9 2.5-1 2 3.2 2.7.8M11 9l-1.8 4.2 3 2.3.8 5M12.2 15.5 8.5 20.5M13.5 8l.5 3.7"/>',
+  gauge: '<path d="M4.2 17.5a8.5 8.5 0 1 1 15.6 0"/><path d="m12 13.5 3.4-4.6"/><circle cx="12" cy="14" r="1.1"/>',
+  globe: '<circle cx="12" cy="12" r="8.6"/><path d="M3.5 12h17M12 3.4c2.6 2.7 3.7 5.5 3.7 8.6s-1.1 5.9-3.7 8.6c-2.6-2.7-3.7-5.5-3.7-8.6s1.1-5.9 3.7-8.6z"/>',
+  key: '<circle cx="8" cy="15.5" r="3.5"/><path d="m10.7 13 8.8-8.8M15.5 8.2l2.3 2.3M17.6 6.1l1.8 1.8"/>',
+  sync: '<path d="M4.5 10a7.5 7.5 0 0 1 13.2-2.6L19.5 9.5M19.5 4.5v5h-5M19.5 14a7.5 7.5 0 0 1-13.2 2.6L4.5 14.5M4.5 19.5v-5h5"/>',
+  offline: '<path d="M7.5 18.5h9.2a4 4 0 0 0 1.4-7.7M6.6 9.9a4.3 4.3 0 0 0-.4 8.4M10 5.7a5.6 5.6 0 0 1 8.5 3.6M3.5 3.5l17 17"/>',
+  install: '<rect x="7" y="2.8" width="10" height="18.4" rx="2.4"/><path d="M12 8v6M9.5 12l2.5 2.5 2.5-2.5M10.8 18.2h2.4"/>',
+  share: '<circle cx="6.5" cy="12" r="2.2"/><circle cx="17.5" cy="6" r="2.2"/><circle cx="17.5" cy="18" r="2.2"/><path d="m8.4 11 7.2-4M8.4 13l7.2 4"/>',
+  home: '<path d="M4 11 12 4l8 7M6 9.5V20h4.5v-5.5h3V20H18V9.5"/>',
+  edit: '<path d="M4.5 19.5 5 15.8 15.6 5.2a2 2 0 0 1 2.9 2.9L7.9 18.7z"/>',
+  grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  bolt: '<path d="M13.5 3 5.5 13.5h5.8L10.5 21l8-10.5h-5.8z"/>',
+  snow: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 6.8l2.5-2.3M9.5 19.5 12 17.2l2.5 2.3"/>',
+};
+export const icon = (name, size = 18, cls = "") =>
+  `<svg class="ic ${cls}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ""}</svg>`;
+/** Sustituye <i data-i="nombre" data-s="18"></i> por el icono SVG. */
+export function hydrate(root = document) {
+  root.querySelectorAll("i[data-i]").forEach((el) => {
+    const t = document.createElement("template");
+    t.innerHTML = icon(el.dataset.i, +el.dataset.s || 18, el.dataset.c || "");
+    el.replaceWith(t.content.firstChild);
+  });
+}
+export const ICONS = Object.keys(P);

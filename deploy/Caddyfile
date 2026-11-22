@@ -1,15 +1,19 @@
-# Caddy: HTTPS automático (Let's Encrypt), estáticos + proxy a la API.
-# DOMAIN en .env (p. ej. meteoguilda.example). Sin dominio: DOMAIN=:80 (solo HTTP, para pruebas).
-{$DOMAIN:localhost} {
+# Caddy interno: sirve la web estática y reparte /api y /mcp. El TLS lo termina el proxy del VPS
+# (ver deploy/nginx-radio.guildawork.com.conf); este Caddy solo escucha en HTTP dentro de Docker.
+{
+	auto_https off
+	admin off
+}
+
+:80 {
 	encode zstd gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
-		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
 		X-Frame-Options DENY
-		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self' https://tile.openstreetmap.org; font-src 'self'; frame-ancestors 'none'"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self' https://tile.openstreetmap.org; font-src 'self'; manifest-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 
@@ -24,8 +28,11 @@
 
 	handle {
 		root * /srv/web
-		@static path /fonts/* /vendor/* /css/* /js/* /favicon.svg
-		header @static Cache-Control "public, max-age=604800"
+		# La app se actualiza con el service worker: html/js/css siempre se revalidan; fuentes, mapa e iconos se cachean.
+		@assets path /fonts/* /vendor/* /icons/*
+		header @assets Cache-Control "public, max-age=604800"
+		@dyn not path /fonts/* /vendor/* /icons/*
+		header @dyn Cache-Control "no-cache"
 		file_server
 	}
 }

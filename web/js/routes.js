@@ -1,5 +1,6 @@
 import { $, $$, api, esc, nf, nf1, t0, LS, debounce, fmtMin, fmtDT, distKm, compass } from "./util.js";
 import { renderCharts, renderProfile } from "./charts.js";
+import { icon } from "./icons.js";
 
 let ctx, mode = "foot", wps, gpx = null, gpxName = "", depart, ia = false, picking = -1, result = null, recents = LS.get("mg-routes", []), hoverM = null, busy = false;
 const blank = () => [{ label: "", lat: null, lon: null }, { label: "", lat: null, lon: null }];
@@ -11,7 +12,7 @@ const LV = ["Favorable", "Precaución", "Desaconsejable"];
 
 export function mount(c) {
   ctx = c; wps = wps || blank(); depart = depart || nextHalf();
-  ctx.cola.innerHTML = `<div class="cola-head"><h2>Planificador de rutas</h2><p>La meteo a la hora a la que pasarás por cada punto</p></div><div class="form" id="form"></div>
+  ctx.cola.innerHTML = `${ctx.brand("routes", "Planificador de rutas")}<div class="form" id="form"></div>
     <div id="recents"></div><p class="cola-note">Rutas a pie y en coche con Valhalla/OpenStreetMap. Tiempos a pie con la regla de Naismith. Importa un GPX para usar tu propio track.</p>`;
   ctx.colb.innerHTML = `<div class="article"><h1>Planifica la salida con el tiempo a favor</h1><p class="lead">Marca un origen y un destino (o importa un GPX), elige cuándo sales y Meteo Guilda calcula la previsión en cada punto <em>a la hora en que llegarás</em>, el riesgo por tramo y la mejor ventana para salir.</p>
     <div class="callout">Consejo: pulsa «Mapa» junto a un punto y toca el mapa para fijarlo.</div></div>`;
@@ -38,13 +39,13 @@ function drawWps() {
 function paintForm() {
   const f = $("#form");
   f.innerHTML = `
-    <div class="field"><span class="lbl">Modo</span><span class="seg" role="group"><button type="button" data-m="foot" aria-pressed="${mode === "foot"}">A pie</button><button type="button" data-m="car" aria-pressed="${mode === "car"}">En coche</button></span></div>
+    <div class="field"><span class="lbl">Modo</span><span class="seg" role="group"><button type="button" data-m="foot" aria-pressed="${mode === "foot"}">${icon("walk", 16)} A pie</button><button type="button" data-m="car" aria-pressed="${mode === "car"}">${icon("car", 16)} En coche</button></span></div>
     ${gpx ? `<div class="field"><span class="lbl">Track importado</span><div class="row"><span class="badge">${esc(gpxName)}</span><button class="btn ghost sm" type="button" id="gpx-x">Quitar</button></div></div>` :
       `<div class="field"><span class="lbl">Puntos</span>${wps.map((w, i) => `<div class="wp ${i === wps.length - 1 ? "end" : ""}"><span class="dot"></span>
         <div class="wsearch"><input type="text" data-i="${i}" value="${esc(w.label)}" placeholder="${i === 0 ? "Origen" : i === wps.length - 1 ? "Destino" : "Parada"}" autocomplete="off"><div class="results" hidden></div></div>
-        <span class="row" style="gap:6px"><button class="mapbtn" type="button" data-pick="${i}">${picking === i ? "Toca el mapa…" : "Mapa"}</button>${wps.length > 2 && i > 0 && i < wps.length - 1 ? `<button class="icon-btn" type="button" data-rm="${i}" aria-label="Quitar parada" style="width:26px;height:26px">×</button>` : ""}</span></div>`).join("")}
-      <div class="row"><button class="btn ghost sm" type="button" id="addwp">+ Parada</button><button class="btn ghost sm" type="button" id="swap">⇅ Invertir</button>
-        <label class="btn ghost sm" style="cursor:pointer">Importar GPX<input type="file" id="gpxf" accept=".gpx,application/gpx+xml,text/xml" hidden></label></div></div>`}
+        <span class="row" style="gap:6px"><button class="mapbtn" type="button" data-pick="${i}">${picking === i ? "Toca el mapa…" : "Mapa"}</button>${wps.length > 2 && i > 0 && i < wps.length - 1 ? `<button class="icon-btn" type="button" data-rm="${i}" aria-label="Quitar parada" style="width:26px;height:26px">${icon("x", 14)}</button>` : ""}</span></div>`).join("")}
+      <div class="row"><button class="btn ghost sm" type="button" id="addwp">${icon("plus", 14)} Parada</button><button class="btn ghost sm" type="button" id="swap">${icon("swap", 14)} Invertir</button>
+        <label class="btn ghost sm" style="cursor:pointer">${icon("upload", 14)} Importar GPX<input type="file" id="gpxf" accept=".gpx,application/gpx+xml,text/xml" hidden></label></div></div>`}
     <div class="field"><label for="dep">Salida</label><input id="dep" type="datetime-local" value="${depart}"></div>
     <label class="check"><input type="checkbox" id="ia" ${ia ? "checked" : ""}> Añadir lectura de IA (usa cuota gratuita)</label>
     <button class="btn" id="go" type="button" ${busy ? "disabled" : ""} style="width:100%">${busy ? "Calculando…" : "Calcular ruta y meteo"}</button>`;
@@ -81,7 +82,7 @@ function wireSearch(inp) {
   inp.addEventListener("blur", () => setTimeout(() => (box.hidden = true), 150));
 }
 function paintRecents() {
-  $("#recents").innerHTML = recents.length ? `<div class="group-label">Recientes</div><div class="recent">${recents.map((r, i) => `<button type="button" data-r="${i}">${esc(r.a)} → ${esc(r.b)} <small>· ${r.mode === "foot" ? "a pie" : "coche"}</small></button>`).join("")}</div>` : "";
+  $("#recents").innerHTML = recents.length ? `<div class="group-label">Recientes</div><div class="recent">${recents.map((r, i) => `<button type="button" data-r="${i}">${esc(r.a)} ${icon("right", 12)} ${esc(r.b)} <small>· ${r.mode === "foot" ? "a pie" : "coche"}</small></button>`).join("")}</div>` : "";
   $$("[data-r]", $("#recents")).forEach((b) => b.addEventListener("click", () => { const r = recents[+b.dataset.r]; mode = r.mode; wps = JSON.parse(JSON.stringify(r.wps)); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
 }
 
@@ -160,7 +161,7 @@ function paintResult() {
   const L = r.lectura;
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${r.modo === "foot" ? "Ruta a pie" : "Ruta en coche"} · ${nf1.format(r.distancia_km)} km</h1><p>Salida ${esc(fmtDT(r.salida))} · llegada ${eta}</p></div>
-    <div class="d-actions"><button class="btn ghost sm" id="gpx-dl" type="button">Descargar GPX</button></div></div>
+    <div class="d-actions"><button class="btn ghost sm" id="gpx-dl" type="button">${icon("download", 14)} Descargar GPX</button></div></div>
   <div class="badges"><span class="pill lv${r.nivel_global ?? 1}"><i></i>${esc(r.nivel_texto)}</span></div>
   <div class="summary" style="margin-top:16px">
     <div class="stat"><span class="lbl">Distancia</span><span class="num">${nf1.format(r.distancia_km)}<small>km</small></span></div>

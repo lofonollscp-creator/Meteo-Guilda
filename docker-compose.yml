@@ -1,7 +1,11 @@
+# Radio Guilda + Meteo Guilda. Pensado para un VPS compartido: nada expuesto salvo 127.0.0.1:${MG_HTTP_PORT},
+# memoria acotada por servicio y un proxy inverso del host (nginx/Caddy) delante para el TLS.
 services:
   db:
     image: postgis/postgis:16-3.4
     restart: unless-stopped
+    mem_limit: 512m
+    command: postgres -c shared_buffers=96MB -c effective_cache_size=256MB -c max_connections=30 -c work_mem=4MB -c maintenance_work_mem=48MB
     environment:
       POSTGRES_DB: meteoguilda
       POSTGRES_USER: mg
@@ -11,12 +15,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U mg -d meteoguilda"]
       interval: 10s
       retries: 10
-  caddy:
-    image: caddy:2
+  web:
+    image: caddy:2-alpine
     restart: unless-stopped
-    ports: ["80:80", "443:443"]
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
+    mem_limit: 128m
+    ports: ["127.0.0.1:${MG_HTTP_PORT:-8088}:80"]
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web:/srv/web:ro
@@ -26,10 +29,12 @@ services:
   api:
     build: .
     restart: unless-stopped
-    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
+    mem_limit: 512m
+    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*' --workers 1
     env_file: .env
     environment:
       MG_PREGEN: "1"
+      MG_REPEATERS_SYNC: "1"
       MG_DATABASE_URL: postgresql://mg:${POSTGRES_PASSWORD}@db:5432/meteoguilda
     depends_on:
       db: {condition: service_healthy}
@@ -40,6 +45,7 @@ services:
   aprs:
     build: .
     restart: unless-stopped
+    mem_limit: 192m
     command: python -m meteoguilda.ingest
     env_file: .env
     environment:
@@ -49,6 +55,7 @@ services:
   mcp:
     build: .
     restart: unless-stopped
+    mem_limit: 192m
     command: python -m meteoguilda.mcp_server --http
     env_file: .env
     environment:

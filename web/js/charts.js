@@ -196,3 +196,43 @@ export const sparkline = (vals, w = 84, h = 20) => {
   const pts = v.map((y, i) => `${(i / (v.length - 1)) * w},${h - 2 - ((y - lo) / (hi - lo || 1)) * (h - 4)}`);
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="M${pts.join("L")}"/></svg>`;
 };
+
+/* ---------- Rosa de los vientos (frecuencia y velocidad media por sector de 22,5°) ---------- */
+const SECT = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"];
+export function renderRose(host, steps) {
+  const n = 16, cnt = Array(n).fill(0), sp = Array(n).fill(0);
+  steps.forEach((s) => { if (s.viento_dir == null) return; const k = Math.round(s.viento_dir / 22.5) % n; cnt[k]++; sp[k] += s.viento_kmh?.mean ?? 0; });
+  const total = cnt.reduce((a, b) => a + b, 0);
+  if (!total) { host.innerHTML = '<p class="empty">Sin datos de dirección.</p>'; return; }
+  const S = 240, c = S / 2, R = 92, max = Math.max(...cnt);
+  host.innerHTML = "";
+  const svg = el("svg", { viewBox: `0 0 ${S} ${S}`, role: "img", "aria-label": "Rosa de los vientos" }, host);
+  [0.33, 0.66, 1].forEach((f) => el("circle", { cx: c, cy: c, r: R * f, class: "rose-ring" }, svg));
+  for (let k = 0; k < n; k++) {
+    if (!cnt[k]) continue;
+    const r = R * Math.sqrt(cnt[k] / max), a0 = ((k - 0.42) * 22.5 - 90) * Math.PI / 180, a1 = ((k + 0.42) * 22.5 - 90) * Math.PI / 180;
+    const p = (a, rr) => `${c + rr * Math.cos(a)},${c + rr * Math.sin(a)}`;
+    const w = el("path", { d: `M${c},${c} L${p(a0, r)} A${r},${r} 0 0 1 ${p(a1, r)} Z`, fill: ramp(SCALES.wind, sp[k] / cnt[k]), class: "petal" }, svg);
+    el("title", {}, w).textContent = `${SECT[k]}: ${Math.round((cnt[k] / total) * 100)}% del tiempo, ${Math.round(sp[k] / cnt[k])} km/h de media`;
+  }
+  [["N", 0], ["E", 90], ["S", 180], ["O", 270]].forEach(([t, d]) => {
+    const a = (d - 90) * Math.PI / 180;
+    el("text", { x: c + (R + 14) * Math.cos(a), y: c + (R + 14) * Math.sin(a) + 4, "text-anchor": "middle", class: "rose-l" }, svg).textContent = t;
+  });
+}
+
+/* ---------- Fase lunar dibujada (sin emojis) ---------- */
+export function moonSvg(age, size = 56) {
+  const P = 29.530588853, k = Math.cos((2 * Math.PI * age) / P), r = 22, c = 28, waxing = age < P / 2;
+  const sweep = k > 0 ? 0 : 1, rx = Math.abs(k) * r;
+  const lit = `M${c},${c - r} A${r},${r} 0 0 1 ${c},${c + r} A${rx},${r} 0 0 ${sweep} ${c},${c - r}Z`;
+  return `<svg viewBox="0 0 56 56" width="${size}" height="${size}" role="img" aria-label="Fase lunar"><circle cx="${c}" cy="${c}" r="${r}" class="moon-dark"/><path d="${lit}" class="moon-lit" ${waxing ? "" : `transform="translate(56 0) scale(-1 1)"`}/><circle cx="${c}" cy="${c}" r="${r}" class="moon-ring"/></svg>`;
+}
+export function sunArc(sunrise, sunset, now = new Date()) {
+  // arco de luz del día: posición actual del Sol entre orto y ocaso
+  const W = 220, H = 80, t0 = sunrise.getTime(), t1 = sunset.getTime(), f = Math.min(1, Math.max(0, (now - t0) / (t1 - t0)));
+  const x = (u) => 10 + u * (W - 20), y = (u) => 66 - Math.sin(u * Math.PI) * 52;
+  const pts = Array.from({ length: 41 }, (_, i) => `${x(i / 40)},${y(i / 40)}`).join(" ");
+  const day = now >= t0 && now <= t1;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Recorrido del Sol"><line x1="6" x2="${W - 6}" y1="66" y2="66" class="gl"/><polyline points="${pts}" fill="none" class="sun-path"/>${day ? `<circle cx="${x(f)}" cy="${y(f)}" r="6" class="sun-dot"/>` : ""}</svg>`;
+}

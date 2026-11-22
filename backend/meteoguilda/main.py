@@ -14,16 +14,17 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import ai, db, geocode, openmeteo, qc, radio, routing, store
+from . import ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
 log = logging.getLogger("api")
 SUMMARY_TTL, AI_TTL = 3600, 3 * 3600
-LIMITS = {"point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600)}
+LIMITS = {"point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600), "profile": (5, 3600),
+          "coverage": (6, 3600), "sat": (60, 3600), "portable": (60, 3600)}
 
 _summaries: dict[tuple, tuple[float, dict]] = {}
 _forecasts: dict[tuple, tuple[float, dict]] = {}
@@ -112,6 +113,17 @@ async def pregen_loop(http: httpx.AsyncClient):
         await asyncio.sleep(AI_TTL - 20 * len(PLACES))
 
 
+async def repeaters_loop(http: httpx.AsyncClient):
+    """Sincroniza repetidores (BrandMeister + HearHam) al arrancar si hace falta y cada 24 h."""
+    while True:
+        try:
+            if await asyncio.to_thread(repeater_sources.needs_sync):
+                log.info("repetidores: %s", await repeater_sources.sync(http))
+        except Exception as e:  # noqa: BLE001
+            log.warning("sincronización de repetidores: %s", e)
+        await asyncio.sleep(24 * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.AsyncClient(timeout=30, headers={"User-Agent": "MeteoGuilda/0.2"})
@@ -119,15 +131,20 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(db.init_schema)
     except Exception as e:  # noqa: BLE001
         log.warning("PostGIS no disponible (%s); estaciones y repetidores desactivados", e)
-    task = asyncio.create_task(pregen_loop(app.state.http)) if os.environ.get("MG_PREGEN") == "1" else None
+    tasks = []
+    if os.environ.get("MG_PREGEN") == "1":
+        tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
+    if os.environ.get("MG_REPEATERS_SYNC") == "1":
+        tasks.append(asyncio.create_task(repeaters_loop(app.state.http)))
     yield
-    if task:
-        task.cancel()
+    for t in tasks:
+        t.cancel()
     await app.state.http.aclose()
     db.close()
 
 
-app = FastAPI(title="Meteo Guilda", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="Meteo Guilda · Radio Guilda", version="0.3", lifespan=lifespan, docs_url=None, redoc_url=None,
+              openapi_url="/api/openapi.json")
 H = lambda r: r.app.state.http  # noqa: E731
 
 
@@ -321,19 +338,245 @@ def _bbox(s: str | None):
 
 
 @app.get("/api/repeaters")
-async def repeaters(bbox: str | None = None, band: str | None = None, coverage: bool = False):
+async def repeaters(bbox: str | None = None, band: str | None = None, mode: str | None = None, q: str | None = Query(None, max_length=40),
+                    coverage: bool = False, limit: int = Query(3000, le=5000)):
+    """Repetidores (BrandMeister + HearHam + manuales). bbox = sur,oeste,norte,este."""
     try:
-        return await asyncio.to_thread(radio.list_repeaters, _bbox(bbox), band, coverage)
+        return await asyncio.to_thread(radio.list_repeaters, _bbox(bbox), band, mode, q, limit, coverage)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(503, "Base de datos no disponible") from e
 
 
 @app.get("/api/repeaters/near")
-async def repeaters_near(lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), km: float = Query(60, le=300)):
+async def repeaters_near(lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), km: float = Query(60, le=300),
+                         mode: str | None = None, band: str | None = None, limit: int = Query(60, le=300)):
     try:
-        return await asyncio.to_thread(radio.repeaters_near, lat, lon, km)
+        return await asyncio.to_thread(radio.repeaters_near, lat, lon, km, mode, band, limit)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(503, "Base de datos no disponible") from e
+
+
+@app.get("/api/repeaters/stats")
+async def repeaters_stats():
+    return await asyncio.to_thread(radio.repeater_stats)
+
+
+@app.get("/api/repeaters/{rep_id}")
+async def repeater(rep_id: int):
+    r = await asyncio.to_thread(radio.get_repeater, rep_id)
+    if not r:
+        raise HTTPException(404, "Repetidor no encontrado")
+    return r
+
+
+@app.post("/api/repeaters/{rep_id}/coverage")
+async def repeater_coverage_public(request: Request, rep_id: int):
+    """Calcula (y guarda) la cobertura estimada si aún no existe. Limitado por IP."""
+    r = await asyncio.to_thread(radio.get_repeater, rep_id, False)
+    if not r:
+        raise HTTPException(404, "Repetidor no encontrado")
+    if not r["has_coverage"]:
+        limit(request, "coverage")
+        try:
+            await radio.compute_coverage(H(request), rep_id)
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"Servicio de elevaciones no disponible: {e}") from e
+    return await asyncio.to_thread(radio.get_repeater, rep_id)
+
+
+# ---------- satélites, sol/luna, operación portátil ----------
+_sat_cache: dict[tuple, tuple[float, list]] = {}
+DEFAULT_SATS = ("ISS (ZARYA)", "SO-50", "RS-44", "AO-7", "AO-73", "IO-117", "CAS-4A", "CAS-4B", "AO-95", "PO-101", "AO-27")
+
+
+@app.get("/api/satellites")
+async def satellites_list(request: Request):
+    return satellites.catalog(await satellites.load_tles(H(request)))
+
+
+@app.get("/api/satellites/passes")
+async def satellites_passes(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
+                            hours: float = Query(24, gt=0, le=48), min_el: float = Query(10, ge=0, le=80), sats: str | None = None,
+                            alt_m: float = Query(0, ge=-500, le=9000)):
+    """Próximos pasos de satélites de aficionados (por defecto ISS y los FM/lineales más usados) sobre un punto."""
+    limit(request, "sat")
+    tles = await satellites.load_tles(H(request))
+    if sats:
+        want = {int(x) for x in sats.split(",") if x.strip().isdigit()}
+        chosen = [t for t in tles if t["norad"] in want][:10]
+    else:
+        chosen = [t for t in tles if any(t["name"].upper().startswith(n) for n in DEFAULT_SATS)][:8]
+    if not chosen:
+        raise HTTPException(503, "No hay datos orbitales (TLE) disponibles ahora")
+    key = (round(lat, 1), round(lon, 1), hours, min_el, tuple(t["norad"] for t in chosen), int(time.time() // 300))
+    hit = _sat_cache.get(key)
+    if not hit:
+        now = datetime.now(timezone.utc)
+
+        def calc():
+            out = []
+            for t in chosen:
+                out += satellites.passes(t, lat, lon, now, hours, min_el, alt_m)
+            return sorted(out, key=lambda p: p["aos"])
+        res = await asyncio.to_thread(calc)
+        if len(_sat_cache) > 200:
+            _sat_cache.clear()
+        hit = _sat_cache[key] = (time.time(), res)
+    return {"observador": {"lat": lat, "lon": lon, "alt_m": alt_m}, "satelites": [{"norad": t["norad"], "nombre": t["name"]} for t in chosen],
+            "pasos": hit[1], "nota": "Horas en ISO 8601 UTC. Elevaciones en grados sobre el horizonte; las frecuencias activas "
+            "cambian: consulta AMSAT/ARISS.", "iss": satellites.ISS_INFO}
+
+
+@app.get("/api/astro")
+def astro_info(lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), when: datetime | None = None):
+    if when is not None and when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return astro.sun_moon(lat, lon, when)
+
+
+_portable_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+@app.get("/api/portable")
+async def portable_window(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Mejores ventanas para operar al aire libre (SOTA/POTA/campo) y horas con riesgo de tormenta o rachas fuertes."""
+    k = _key(lat, lon)
+    hit = _portable_cache.get(k)
+    if hit and time.time() - hit[0] < 1800:
+        return hit[1]
+    limit(request, "portable")
+    try:
+        raw = (await openmeteo.fetch_many([(lat, lon)], days=3, client=H(request)))[0]
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Fuente de modelos no disponible: {e}") from e
+    out = portable.window(openmeteo.hourly_consensus(raw), lat, lon)
+    out["ubicacion"] = {"lat": lat, "lon": lon, "locator": radio.to_locator(lat, lon), "altitud_m": raw.get("elevation")}
+    _portable_cache[k] = (time.time(), out)
+    return out
+
+
+# ---------- perfiles y cuaderno de contactos (clave secreta Bearer) ----------
+def need_profile(authorization: str | None = Header(None)) -> str:
+    key = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else None
+    try:
+        h = logbook.auth(key)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(503, "Base de datos no disponible") from e
+    if not h:
+        raise HTTPException(401, "Falta la clave del cuaderno (Authorization: Bearer <clave>)")
+    return h
+
+
+@app.post("/api/profile", status_code=201)
+def profile_create(request: Request):
+    """Crea un perfil anónimo y devuelve su clave secreta (solo se muestra una vez)."""
+    limit(request, "profile")
+    return {"key": logbook.create_profile(), "aviso": "Guarda la clave: quien la tenga puede leer y modificar el cuaderno."}
+
+
+@app.get("/api/profile")
+def profile_get(h: str = Depends(need_profile)):
+    return {"settings": logbook.get_settings(h)}
+
+
+@app.put("/api/profile")
+def profile_put(settings: dict, h: str = Depends(need_profile)):
+    try:
+        return {"settings": logbook.put_settings(h, settings)}
+    except ValueError as e:
+        raise HTTPException(413, str(e)) from e
+
+
+@app.delete("/api/profile", status_code=204)
+def profile_delete(h: str = Depends(need_profile)):
+    logbook.delete_profile(h)
+
+
+class QsoIn(BaseModel):
+    call: str
+    qso_at: str
+    band: str | None = None
+    mode: str | None = None
+    freq_mhz: float | None = None
+    rst_sent: str | None = None
+    rst_rcvd: str | None = None
+    grid: str | None = None
+    name: str | None = None
+    notes: str | None = Field(None, max_length=500)
+    qsl_sent: bool = False
+    qsl_rcvd: bool = False
+
+
+class QsoPatch(BaseModel):
+    qsl_sent: bool | None = None
+    qsl_rcvd: bool | None = None
+    notes: str | None = Field(None, max_length=500)
+    name: str | None = None
+    grid: str | None = None
+    rst_sent: str | None = None
+    rst_rcvd: str | None = None
+
+
+@app.get("/api/qso")
+def qso_list(h: str = Depends(need_profile), q: str | None = None, band: str | None = None, mode: str | None = None,
+             status: str | None = Query(None, pattern="^(pending|confirmed)$"), limit: int = Query(200, le=1000), offset: int = 0):
+    return logbook.list_qsos(h, q, band, mode, status, limit, offset)
+
+
+@app.post("/api/qso", status_code=201)
+def qso_add(q: QsoIn, h: str = Depends(need_profile)):
+    try:
+        qs = logbook.clean(q.model_dump())
+        dup = logbook.worked_before(h, qs["call"])
+        return {"id": logbook.add_many(h, [qs])[0], "ya_trabajado": [{"qso_at": d["qso_at"], "band": d["band"], "mode": d["mode"]} for d in dup][:5]}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.get("/api/qso/stats")
+def qso_stats(h: str = Depends(need_profile)):
+    qth = (logbook.get_settings(h) or {}).get("qth")
+    return logbook.stats(h, qth)
+
+
+@app.get("/api/qso/adif")
+def qso_adif(h: str = Depends(need_profile)):
+    s = logbook.get_settings(h) or {}
+    rows = logbook.list_qsos(h, limit=1000)
+    return Response(logbook.to_adif(rows, (s.get("qth") or {}).get("locator")), media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="radioguilda.adi"'})
+
+
+@app.post("/api/qso/import")
+async def qso_import(request: Request, h: str = Depends(need_profile)):
+    """Importa un ADIF (cuerpo de texto). Devuelve cuántos contactos se añadieron."""
+    text = (await request.body()).decode("utf-8", "replace")
+    try:
+        recs = logbook.parse_adif(text)
+        ids = await asyncio.to_thread(logbook.add_many, h, recs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"importados": len(ids)}
+
+
+@app.get("/api/qso/worked")
+def qso_worked(call: str = Query(max_length=14), h: str = Depends(need_profile)):
+    return logbook.worked_before(h, call)
+
+
+@app.patch("/api/qso/{qid}")
+def qso_patch(qid: int, p: QsoPatch, h: str = Depends(need_profile)):
+    if not logbook.update(h, qid, p.model_dump(exclude_none=True)):
+        raise HTTPException(404, "Contacto no encontrado")
+    return {"ok": True}
+
+
+@app.delete("/api/qso/{qid}", status_code=204)
+def qso_delete(qid: int, h: str = Depends(need_profile)):
+    if not logbook.delete(h, qid):
+        raise HTTPException(404, "Contacto no encontrado")
 
 
 def _admin(token: str | None):
@@ -361,6 +604,12 @@ class RepIn(BaseModel):
 async def add_repeater(rep: RepIn, x_admin_token: str | None = Header(None)):
     _admin(x_admin_token)
     return {"id": await asyncio.to_thread(radio.upsert_repeater, rep.model_dump())}
+
+
+@app.post("/api/admin/repeaters/sync")
+async def repeaters_sync(request: Request, x_admin_token: str | None = Header(None)):
+    _admin(x_admin_token)
+    return await repeater_sources.sync(H(request))
 
 
 @app.post("/api/admin/repeaters/{rep_id}/coverage")

@@ -1,0 +1,7 @@
+# Si el proxy del VPS es Caddy en lugar de nginx: añade este bloque a su Caddyfile.
+radio.guildawork.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8088 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

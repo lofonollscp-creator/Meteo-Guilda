@@ -1,0 +1,26 @@
+{
+  "name": "Radio Guilda · Meteo Guilda",
+  "short_name": "Guilda",
+  "description": "Previsión meteorológica con datos abiertos, planificador de rutas y espacio para radioaficionados.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f3ef",
+  "theme_color": "#0f5e63",
+  "lang": "es",
+  "categories": ["weather", "utilities", "navigation"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Previsión", "short_name": "Previsión", "url": "/#/forecast", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Planificar ruta", "short_name": "Rutas", "url": "/#/routes", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Radio Guilda", "short_name": "Radio", "url": "/#/radio", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Cuaderno QSL", "short_name": "QSL", "url": "/#/radio/qsl", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

@@ -1,21 +1,28 @@
-# Meteo Guilda
+# Meteo Guilda · Radio Guilda
 
 Previsión meteorológica a partir de datos abiertos (ECMWF, ICON, GFS, Météo-France vía Open-Meteo) y balizas meteo
 APRS, con lectura de IA (OpenRouter, modelos gratuitos), **planificador de rutas** con la meteo a la hora de paso,
 **espacio para radioaficionados** y un **servidor MCP** para conectar otras IAs.
-Plan completo: [PLAN.md](PLAN.md) · [despliegue en VPS](docs/DEPLOY.md) · [decisiones técnicas](docs/decisiones.md).
+Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [API](docs/API.md) · [decisiones](docs/decisiones.md).
 
-## Qué incluye (v0.2)
-- **Previsión**: 6 lugares principales (Garòs, Premià de Mar, Tórtoles de Esgueva, Bresca, La Garrovilla,
-  Bagnères-de-Bigorre), búsqueda libre de cualquier lugar, favoritos y anclados, meteograma, gráficos (temperatura con
-  banda entre modelos, lluvia, nieve, viento con flechas, nubes, presión, isocero) y balizas APRS cercanas.
-- **Rutas** (a pie / en coche, o GPX propio): tiempo en cada punto *a la hora de paso*, semáforo de riesgo por reglas,
-  perfil de elevación coloreado, mejores ventanas de salida, balizas y repetidores junto al recorrido, exportación GPX.
-- **Radio**: repetidores con cobertura estimada (línea de vista) en PostGIS, propagación troposférica VHF/UHF (gradiente
-  de refractividad), condiciones HF (NOAA SWPC), cuaderno QSL con exportación ADIF, locator/código Q/fonético/CTCSS.
-- **Aprende**: guías de meteorología, radioafición y su relación.
-- **MCP**: `list_places`, `search_place`, `get_forecast_data`, `get_ai_forecast`, `plan_route`, `get_nearby_observations`,
-  `get_vhf_propagation`, `get_hf_conditions`, `find_repeaters`, `maidenhead`.
+## Qué incluye (v0.3)
+**Meteo Guilda**
+- Inicio con el resumen del día, 6 lugares principales (Garòs, Premià de Mar, Tórtoles de Esgueva, Bresca, La Garrovilla,
+  Bagnères-de-Bigorre; coordenadas verificadas con dos fuentes), búsqueda libre, favoritos y anclados.
+- Meteograma, gráficos (temperatura con banda entre modelos, lluvia, nieve, viento con flechas, nubes, presión, isocero),
+  rosa de los vientos, Sol y Luna y balizas APRS cercanas.
+- Rutas a pie/en coche o GPX: meteo a la hora de paso, semáforo de riesgo, perfil coloreado, mejores ventanas, exportación GPX.
+
+**Radio Guilda**
+- Repetidores FM/DMR/D-STAR/C4FM (BrandMeister + HearHam) en mapa con agrupación, ficha, cobertura estimada, exportación a CHIRP.
+- Propagación troposférica y HF, línea gris; pasos de satélites con trayectoria y calendario; ventanas para operar en portátil.
+- Cuaderno QSL: duplicados, ADIF (importar/exportar), estadísticas, cuadros trabajados, tarjetas QSL en PNG.
+- Herramientas: locator, distancia, longitud de antena, Morse con audio, código Q, fonético, CTCSS, dBm.
+
+**Plataforma**
+- Webapp instalable (PWA) con modo sin conexión; iconos y marca propios; tema claro/oscuro.
+- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (24 herramientas).
+- Sincronización opcional con clave secreta (favoritos, QTH y cuaderno entre dispositivos, API y MCP).
 
 ## Desarrollo
 ```bash

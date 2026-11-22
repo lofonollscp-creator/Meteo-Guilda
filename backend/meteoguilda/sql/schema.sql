@@ -34,3 +34,36 @@ CREATE TABLE IF NOT EXISTS repeaters (
 );
 CREATE INDEX IF NOT EXISTS rep_geom_gix ON repeaters USING GIST (geom);
 CREATE INDEX IF NOT EXISTS rep_cov_gix  ON repeaters USING GIST (coverage);
+
+-- Extensión de repetidores (BrandMeister / HearHam / manual)
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS network     TEXT;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS color_code  SMALLINT;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS dmr_id      INTEGER;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS power_w     REAL;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS city        TEXT;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS website     TEXT;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS last_seen   TIMESTAMPTZ;
+ALTER TABLE repeaters ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ DEFAULT now();
+CREATE INDEX IF NOT EXISTS rep_call ON repeaters (callsign);
+
+-- Perfiles anónimos (clave secreta) para sincronizar favoritos y cuaderno entre dispositivos, API y MCP
+CREATE TABLE IF NOT EXISTS profiles (
+  key_hash   TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  settings   JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE TABLE IF NOT EXISTS qsos (
+  id        BIGSERIAL PRIMARY KEY,
+  key_hash  TEXT NOT NULL REFERENCES profiles(key_hash) ON DELETE CASCADE,
+  call      TEXT NOT NULL,
+  qso_at    TIMESTAMPTZ NOT NULL,
+  band      TEXT, mode TEXT, freq_mhz DOUBLE PRECISION,
+  rst_sent  TEXT, rst_rcvd TEXT, grid TEXT, name TEXT, notes TEXT,
+  qsl_sent  BOOLEAN NOT NULL DEFAULT FALSE,
+  qsl_rcvd  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS qsos_key_at ON qsos (key_hash, qso_at DESC);
+CREATE TABLE IF NOT EXISTS kv_cache (
+  k TEXT PRIMARY KEY, v TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

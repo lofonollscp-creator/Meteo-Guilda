@@ -1,228 +1,367 @@
-import { $, $$, api, esc, nf, nf1, LS, debounce, toLocator, fromLocator, distKm, bearing, compass } from "./util.js";
-import { renderCharts, renderStrip, ramp } from "./charts.js";
+import { $, $$, api, esc, nf, nf1, t0, LS, debounce, toLocator, fromLocator, distKm, bearing, compass, wd, hh } from "./util.js";
+import { renderCharts, renderStrip, sparkline } from "./charts.js";
+import { icon } from "./icons.js";
+import { pushSettings } from "./sync.js";
+import * as qsl from "./qsl.js";
 
-let placesP = Promise.resolve([]), ctx, sub = "repetidores", qth = LS.get("mg-qth", null), qsos = LS.get("mg-qsl", []), reps = null, showCov = true, band = "", loc = null, places = [];
+let ctx, sub = "resumen", places = [], placesP = Promise.resolve([]), loc = null, req = 0;
 const MENU = [
-  ["repetidores", "Repetidores", "Frecuencias, subtonos y cobertura", '<path d="M12 11v10M8 21h8M7.5 6.5a6.4 6.4 0 0 0 0 9M16.5 6.5a6.4 6.4 0 0 1 0 9"/><circle cx="12" cy="11" r="1.5"/>'],
-  ["propagacion", "Propagación", "Tropo VHF/UHF y condiciones HF", '<path d="M3 17c3-8 6-8 9 0s6 8 9 0"/>'],
-  ["qsl", "Cuaderno QSL", "Registro de contactos y confirmaciones", '<path d="M5 3h14v18l-7-4-7 4z"/>'],
-  ["herramientas", "Herramientas", "Locator, código Q, fonético, CTCSS", '<path d="M14.5 6.5a4 4 0 0 0-5 5L3 18l3 3 6.5-6.5a4 4 0 0 0 5-5l-2.5 2.5-2.5-.5-.5-2.5z"/>'],
+  ["resumen", "Resumen", "Tu radio de un vistazo", "home"],
+  ["repetidores", "Repetidores", "FM, DMR, D-STAR y C4FM con cobertura", "tower"],
+  ["propagacion", "Propagación", "Tropo, HF y línea gris", "wave"],
+  ["satelites", "Satélites", "Pasos de la ISS y satélites de aficionados", "satellite"],
+  ["portatil", "Operación portátil", "Mejor ventana para salir a operar", "tent"],
+  ["qsl", "Cuaderno QSL", "Contactos, confirmaciones y tarjetas", "log"],
+  ["herramientas", "Herramientas", "Locator, antenas, Morse, código Q…", "tools"],
 ];
-const Q = [["QRA", "Nombre de mi estación es…"], ["QRG", "Frecuencia exacta"], ["QRK", "Inteligibilidad de sus señales"], ["QRL", "Frecuencia ocupada"], ["QRM", "Interferencias de otras estaciones"], ["QRN", "Ruido atmosférico (estáticos, tormentas)"], ["QRO", "Aumentar potencia"], ["QRP", "Reducir potencia (operación de baja potencia)"], ["QRS", "Transmitir más despacio"], ["QRT", "Cesar la transmisión"], ["QRV", "Estoy listo"], ["QRX", "Espere / volveré a llamar"], ["QRZ", "¿Quién me llama?"], ["QSB", "Desvanecimiento (fading) de las señales"], ["QSL", "Acuso recibo / confirmo el contacto"], ["QSO", "Contacto entre estaciones"], ["QSY", "Cambiar de frecuencia"], ["QTH", "Ubicación"], ["QTR", "Hora exacta"]];
-const ICAO = { A: "Alfa", B: "Bravo", C: "Charlie", D: "Delta", E: "Echo", F: "Foxtrot", G: "Golf", H: "Hotel", I: "India", J: "Juliett", K: "Kilo", L: "Lima", M: "Mike", N: "November", O: "Oscar", P: "Papa", Q: "Quebec", R: "Romeo", S: "Sierra", T: "Tango", U: "Uniform", V: "Victor", W: "Whiskey", X: "X-ray", Y: "Yankee", Z: "Zulu", 0: "Zero", 1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine" };
-const CTCSS = [67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2, 110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 162.2, 167.9, 173.8, 179.9, 186.2, 192.8, 203.5, 210.7, 218.1, 225.7, 233.6, 241.8, 250.3];
-const BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m", "70cm", "23cm"];
-const MODES = ["SSB", "CW", "FM", "FT8", "FT4", "DMR", "D-STAR", "C4FM", "RTTY", "AM", "Otro"];
-const CAT = { normal: "#c9ced2", "sub-refracción": "#a9b7c6", "super-refracción": "#e2a548", conducto: "#c0392b" };
+export const getQth = () => LS.get("mg-qth", null);
+const setQth = (q) => { LS.set("mg-qth", q); pushSettings(); };
+const MODE_COL = { FM: "#3a7bd5", DMR: "#c4501b", "D-STAR": "#7a5bd6", C4FM: "#2c8a5a" };
 const fmtF = (f) => f.toFixed(4).replace(".", ",");
-const saveQ = () => LS.set("mg-qsl", qsos);
+const here = () => loc || (getQth() ? { ...getQth(), name: "Mi QTH" } : { lat: 42.7, lon: 0.847, name: "Garòs" });
+const bmLink = (r) => (r.dmr_id ? `https://brandmeister.network/?page=repeater&id=${r.dmr_id}` : null);
 
 export function mount(c) {
   ctx = c;
-  ctx.cola.innerHTML = `<div class="cola-head"><h2>Radioafición</h2><p>Meteo y radio, juntas</p></div>
-    <div class="form" style="padding-bottom:6px"><div class="field"><label for="qth">Mi locator (QTH)</label><input id="qth" type="text" maxlength="8" placeholder="p. ej. JN02ac" value="${esc(qth?.locator || "")}"></div><p class="empty" id="qthinfo" style="margin-top:-6px;font-size:12.5px"></p></div>
-    <div class="menu" id="menu">${MENU.map(([id, t, s, ic]) => `<button type="button" data-sub="${id}"><svg viewBox="0 0 24 24">${ic}</svg><span>${t}<small>${s}</small></span></button>`).join("")}</div>
-    <p class="cola-note">Cuaderno y ajustes se guardan solo en este dispositivo. Para tener repetidores en el mapa hay que importarlos (ver «Repetidores»).</p>`;
+  const q = getQth();
+  ctx.cola.innerHTML = `${ctx.brand("radio")}
+    <div class="form" style="padding-bottom:6px">
+      <div class="field"><label for="qth">Mi locator (QTH)</label><div class="row" style="flex-wrap:nowrap"><input id="qth" type="text" maxlength="8" placeholder="p. ej. JN02ac" value="${esc(q?.locator || "")}" style="flex:1"><button class="icon-btn" id="geo" type="button" title="Usar mi ubicación" aria-label="Usar mi ubicación">${icon("compass")}</button></div></div>
+      <div class="field"><label for="mycall">Mi indicativo</label><input id="mycall" type="text" maxlength="14" placeholder="opcional" style="text-transform:uppercase" value="${esc(q?.call || "")}"></div>
+      <p class="empty" id="qthinfo" style="font-size:12.5px"></p></div>
+    <div class="menu" id="menu">${MENU.map(([id, t, s, ic]) => `<button type="button" data-sub="${id}">${icon(ic)}<span>${t}<small>${s}</small></span></button>`).join("")}</div>
+    <p class="cola-note">Cuaderno y ajustes se guardan en este dispositivo (o en tu clave, si activas la sincronización). Datos de repetidores: BrandMeister y HearHam.</p>`;
   $("#menu").addEventListener("click", (e) => { const b = e.target.closest("[data-sub]"); if (b) location.hash = `#/radio/${b.dataset.sub}`; });
-  $("#qth").addEventListener("input", (e) => {
-    const p = fromLocator(e.target.value);
-    qth = p ? { locator: e.target.value.toUpperCase(), ...p } : null; LS.set("mg-qth", qth); qthInfo();
-  });
+  const save = () => { const p = fromLocator($("#qth").value); setQth(p ? { locator: $("#qth").value.toUpperCase(), ...p, call: $("#mycall").value.toUpperCase() } : $("#mycall").value ? { ...(getQth() || {}), call: $("#mycall").value.toUpperCase() } : null); qthInfo(); };
+  $("#qth").addEventListener("input", save); $("#mycall").addEventListener("input", save);
+  $("#qth").addEventListener("change", () => { if (getQth()?.lat != null) show([sub]); });
+  $("#geo").addEventListener("click", () => navigator.geolocation?.getCurrentPosition((p) => {
+    const l = toLocator(p.coords.latitude, p.coords.longitude); $("#qth").value = l.slice(0, 4).toUpperCase() + l.slice(4); // sin precisión engañosa: 6 caracteres
+    setQth({ locator: $("#qth").value, lat: p.coords.latitude, lon: p.coords.longitude, call: $("#mycall").value.toUpperCase() }); qthInfo(); ctx.toast("QTH actualizado"); show([sub]);
+  }, () => ctx.toast("No se pudo obtener la ubicación"), { timeout: 8000 }));
   qthInfo();
   ctx.stations(false);
   placesP = api("/api/places").then((p) => (places = p)).catch(() => []);
 }
-function qthInfo() { const i = $("#qthinfo"); if (i) i.textContent = qth ? `${qth.lat.toFixed(3)}°, ${qth.lon.toFixed(3)}°` : ""; }
-export function unmount() { clearLayers(); }
-function clearLayers() {
-  const m = ctx.map; if (!m || !ctx.mapLoaded) return;
-  ["rep-cov", "rep-cov-l", "qso-lines"].forEach((l) => m.getLayer(l) && m.removeLayer(l));
-  ["rep-c", "qso-l"].forEach((s) => m.getSource(s) && m.removeSource(s));
+function qthInfo() { const i = $("#qthinfo"), q = getQth(); if (i) i.textContent = q?.lat != null ? `${q.lat.toFixed(3)}°, ${q.lon.toFixed(3)}°` : "Indica tu locator para personalizar la sección."; }
+export function unmount() { clearLayers(); stopSat(); }
+
+const LAYERS = ["rep-cl", "rep-pt", "rep-pt-sel", "rep-cov", "rep-cov-l", "night", "night-l", "qso-lines", "qso-grids"];
+const SOURCES = ["reps", "rep-c", "night", "qso-l", "qso-g"];
+export function clearLayers() {
+  const m = ctx?.map; if (!m || !ctx.mapLoaded) return;
+  LAYERS.forEach((l) => m.getLayer(l) && m.removeLayer(l)); SOURCES.forEach((s) => m.getSource(s) && m.removeSource(s));
 }
+const onMap = (fn) => (ctx.mapLoaded ? fn() : ctx.mapReady.then(fn));
+
 export function show(parts) {
-  sub = MENU.some((m) => m[0] === parts[0]) ? parts[0] : "repetidores";
+  const id = parts[0] || "resumen", bare = !parts[0];
+  sub = MENU.some((m) => m[0] === id) ? id : "resumen";
+  req++;
   $$("#menu [data-sub]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sub === sub)));
-  ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; ctx.pane("detail");
-  ({ repetidores, propagacion, qsl, herramientas })[sub]();
+  ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; stopSat(); ctx.pane(bare && matchMedia("(max-width:760px)").matches ? "list" : "detail");
+  ({ resumen, repetidores: () => repetidores(parts[1]), propagacion, satelites, portatil, qsl: () => qsl.view(ctx, { getQth, clearLayers, onMap }), herramientas })[sub]();
+}
+const head = (t, p, extra = "") => `<div class="d-head"><div><h1>${t}</h1><p>${p}</p></div>${extra}</div>`;
+const where = () => `<div class="row" style="margin:16px 0"><select id="where" style="width:auto;max-width:100%"></select><span class="chip chip-ghost">o toca el mapa</span></div>`;
+async function fillWhere(onChange) {
+  await placesP;
+  const q = getQth(), opts = [...(q?.lat != null ? [{ name: "Mi QTH", lat: q.lat, lon: q.lon }] : []), ...places.map((p) => ({ name: p.name, lat: p.lat, lon: p.lon }))];
+  if (loc?.name === "Punto del mapa") opts.push(loc);
+  const sel = $("#where"); if (!sel) return;
+  sel.innerHTML = opts.map((o, i) => `<option value="${i}">${esc(o.name)}</option>`).join("");
+  sel.value = String(Math.max(0, opts.findIndex((o) => o.name === here().name)));
+  sel.addEventListener("change", () => { loc = opts[+sel.value]; onChange(); });
+  ctx.onMapClick = ({ lat, lng }) => { loc = { lat, lon: lng, name: "Punto del mapa" }; onChange(); };
+}
+
+/* ---------- Resumen ---------- */
+async function resumen() {
+  const my = req, at = here(), q = getQth();
+  ctx.colb.innerHTML = `${head("Radio Guilda", "Meteorología y radio, juntas: lo que importa ahora mismo " + (q?.lat != null ? "en tu QTH" : "(indica tu locator para personalizarlo)"))}
+    <div class="pgrid" id="rg" style="margin-top:22px">${Array.from({ length: 6 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div>
+    <section class="sec"><div class="label">Qué puedes hacer</div><div class="quick">
+      <a href="#/radio/repetidores">${icon("tower")}Buscar repetidores</a><a href="#/radio/satelites">${icon("satellite")}Pasos de satélites</a><a href="#/radio/portatil">${icon("tent")}Operar en portátil</a>
+      <a href="#/radio/qsl">${icon("log")}Cuaderno QSL</a><a href="#/radio/herramientas">${icon("tools")}Herramientas</a><a href="#/learn/tropo">${icon("book")}Guías</a></div></section>
+    <p class="empty" style="margin-top:20px">Todo lo que ves aquí está disponible por la <a href="/api/openapi.json">API</a> y el <a href="#/learn/mcp">servidor MCP</a>.</p>`;
+  ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 6);
+  const [solar, prop, astro, sats, reps, port, st] = await Promise.all([
+    api("/api/solar").catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null), api(`/api/astro?lat=${at.lat}&lon=${at.lon}`).catch(() => null),
+    api(`/api/satellites/passes?lat=${at.lat}&lon=${at.lon}&hours=24&min_el=15`).catch(() => null), api(`/api/repeaters/near?lat=${at.lat}&lon=${at.lon}&km=70&limit=4`).catch(() => []),
+    api(`/api/portable?lat=${at.lat}&lon=${at.lon}`).catch(() => null), qsl.quickStats().catch(() => null)]);
+  if (my !== req || !$("#rg")) return;
+  const w = prop?.peor, cat = { conducto: "lv2", "super-refracción": "lv1" }[w?.cat] || "lv0", time = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+  const next = sats?.pasos?.[0], win = port?.mejores_ventanas?.[0];
+  const card = (ic, t, link, body) => `<a class="card rcard" href="${link}"><h3>${icon(ic, 16)} ${t}</h3>${body}</a>`;
+  $("#rg").innerHTML = [
+    card("wave", "Propagación", "#/radio/propagacion", `<div class="kv"><span>HF · Kp / SFI</span><span>${solar?.kp ?? "–"} / ${solar?.sfi ?? "–"}</span></div><div class="kv"><span>Tropo 72 h</span><span class="pill ${cat}"><i></i>${w ? esc(w.cat) : "–"}</span></div><div class="kv"><span>Locator</span><span>${esc(prop?.locator || toLocator(at.lat, at.lon))}</span></div>`),
+    card("satellite", "Próximo pase", "#/radio/satelites", next ? `<div class="big" style="font-size:26px">${time(next.aos)}</div><p class="empty">${esc(next.satelite)} · ${next.max_el}° máx. · ${Math.round(next.duracion_s / 60)} min</p>` : '<p class="empty">Sin pasos de &gt;15° en 24 h, o datos orbitales no disponibles.</p>'),
+    card("tower", "Repetidores cerca", "#/radio/repetidores", reps?.length ? reps.map((r) => `<div class="kv"><span>${esc(r.callsign)} <span class="tag">${esc(r.mode)}</span></span><span>${fmtF(r.freq_mhz)}</span></div>`).join("") : '<p class="empty">Sin repetidores en 70 km (o catálogo aún cargando).</p>'),
+    card("tent", "Salir a operar", "#/radio/portatil", win ? `<div class="big" style="font-size:22px">${time(win.desde)}–${time(win.hasta)}</div><p class="empty">Mejor ventana de ${win.horas} h. ${port.horas_con_tormenta.length ? "Hay riesgo de tormenta: revisa." : "Sin tormentas previstas."}</p>` : '<p class="empty">Sin ventanas limpias en 48 h.</p>'),
+    card("sun", "Sol y Luna", "#/radio/propagacion", astro ? `<div class="kv"><span>Orto / ocaso</span><span>${time(astro.orto)} / ${time(astro.ocaso)}</span></div><div class="kv"><span>Luna</span><span>${esc(astro.luna.fase)}</span></div><div class="kv"><span>Iluminación</span><span>${astro.luna.iluminacion_pct}%</span></div>` : ""),
+    card("log", "Mi cuaderno", "#/radio/qsl", st ? `<div class="big">${st.total}</div><p class="empty">contactos · ${st.confirmados} confirmados · ${st.indicativos} indicativos</p>` : '<p class="empty">Aún no hay contactos.</p>'),
+  ].join("");
 }
 
 /* ---------- Repetidores ---------- */
-async function repetidores() {
-  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Repetidores</h1><p>Frecuencias, subtonos y cobertura estimada por línea de vista</p></div></div>
-    <div class="row" style="margin:18px 0"><select id="band" style="width:auto"><option value="">Todas las bandas</option><option>10m</option><option>6m</option><option>2m</option><option>70cm</option></select>
-      <label class="check" style="margin:0"><input id="cov" type="checkbox" ${showCov ? "checked" : ""}> Mostrar cobertura en el mapa</label></div>
-    <div id="replist"><div class="skeleton" style="height:90px"></div></div>
-    <p class="empty" style="margin-top:18px">La cobertura es una <b>estimación orientativa</b>: línea de vista con modelo digital del terreno y radio efectivo de 4/3. No considera potencia, ganancia, ruido ni edificios. Úsala para decidir dónde probar, no como garantía.</p>`;
-  $("#band").value = band;
-  $("#band").addEventListener("change", (e) => { band = e.target.value; paintReps(); });
-  $("#cov").addEventListener("change", (e) => { showCov = e.target.checked; drawRepMap(); });
-  ctx.onMapClick = async ({ lat, lng }) => { loc = { lat, lon: lng }; paintReps(); };
-  try { reps = await api("/api/repeaters?coverage=true"); } catch (e) { $("#replist").innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
-  paintReps(); drawRepMap();
+let rep = { band: "", mode: "", q: "", rows: [], sel: null, cov: true, ctl: null };
+async function repetidores(selId) {
+  const my = req;
+  ctx.colb.innerHTML = `${head("Repetidores", "FM, DMR, D-STAR y C4FM de BrandMeister y listados abiertos")}
+    <div class="row" style="margin:18px 0"><input id="rq" type="search" placeholder="Indicativo o ciudad…" style="max-width:220px" value="${esc(rep.q)}">
+      <select id="rb" style="width:auto"><option value="">Todas las bandas</option><option>10m</option><option>6m</option><option>2m</option><option>70cm</option><option>23cm</option></select>
+      <span class="seg" id="rm"><button type="button" data-m="" aria-pressed="true">Todos</button>${Object.keys(MODE_COL).map((m) => `<button type="button" data-m="${m}" aria-pressed="false">${m}</button>`).join("")}</span></div>
+    <div class="legend" id="rleg" style="margin:0 0 12px">${Object.entries(MODE_COL).map(([m, c]) => `<span><i style="border-color:${c}"></i>${m}</span>`).join("")}<span id="rstat"></span></div>
+    <div id="rdetail"></div><div id="rlist"><div class="skeleton" style="height:90px"></div></div>
+    <p class="empty" style="margin-top:18px">Datos de <a href="https://brandmeister.network" target="_blank" rel="noopener">BrandMeister</a> y <a href="https://hearham.com" target="_blank" rel="noopener">HearHam</a>. Pueden contener errores o estar desactualizados: confirma en la web del repetidor o de tu asociación. La cobertura es una <b>estimación por línea de vista</b>, no una garantía.</p>`;
+  $("#rb").value = rep.band; $$("#rm button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === rep.mode)));
+  const reload = debounce(() => loadReps(), 250);
+  $("#rq").addEventListener("input", (e) => { rep.q = e.target.value; reload(); });
+  $("#rb").addEventListener("change", (e) => { rep.band = e.target.value; loadReps(); });
+  $("#rm").addEventListener("click", (e) => { const b = e.target.closest("[data-m]"); if (!b) return; rep.mode = b.dataset.m; $$("#rm button").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); loadReps(); });
+  api("/api/repeaters/stats").then((s) => { if ($("#rstat")) $("#rstat").textContent = `${nf.format(s.total)} en el catálogo`; }).catch(() => {});
+  ctx.mapCtl('<button class="chip" id="rcov" type="button" aria-pressed="true">Cobertura</button><button class="chip" id="rchirp" type="button">Exportar FM (CHIRP)</button>');
+  $("#rcov").addEventListener("click", () => { rep.cov = !rep.cov; $("#rcov").setAttribute("aria-pressed", String(rep.cov)); drawCov(); });
+  $("#rchirp").addEventListener("click", exportChirp);
+  const at = here(); ctx.marker(at.lon, at.lat, { label: at.name, cls: "fav" });
+  await ctx.mapReady; if (my !== req) return;
+  const m = ctx.map;
+  m.addSource("reps", { type: "geojson", data: { type: "FeatureCollection", features: [] }, cluster: true, clusterRadius: 38, clusterMaxZoom: 11 });
+  m.addLayer({ id: "rep-cl", type: "circle", source: "reps", filter: ["has", "point_count"], paint: { "circle-color": "#5c6670", "circle-radius": ["step", ["get", "point_count"], 9, 10, 13, 40, 18, 120, 24], "circle-opacity": 0.78, "circle-stroke-width": 2, "circle-stroke-color": "#fff" } });
+  m.addLayer({ id: "rep-pt", type: "circle", source: "reps", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": 6, "circle-stroke-width": 2, "circle-stroke-color": "#fff",
+    "circle-color": ["match", ["get", "mode"], "DMR", MODE_COL.DMR, "D-STAR", MODE_COL["D-STAR"], "C4FM", MODE_COL.C4FM, MODE_COL.FM] } });
+  m.on("click", "rep-cl", (e) => { m.easeTo({ center: e.features[0].geometry.coordinates, zoom: m.getZoom() + 2 }); e.originalEvent.__st = true; });
+  m.on("click", "rep-pt", (e) => { const id = e.features[0].properties.id; e.originalEvent.__st = true; location.hash = `#/radio/repetidores/${id}`; });
+  ["rep-cl", "rep-pt"].forEach((l) => { m.on("mouseenter", l, () => (m.getCanvas().style.cursor = "pointer")); m.on("mouseleave", l, () => (m.getCanvas().style.cursor = "")); });
+  if (rep.ctl) m.off("moveend", rep.ctl);
+  rep.ctl = debounce(() => { if (sub === "repetidores") loadReps(true); }, 350); m.on("moveend", rep.ctl);
+  m.easeTo({ center: [at.lon, at.lat], zoom: Math.max(m.getZoom(), 7), duration: 0 });
+  await loadReps(); if (selId) pick(+selId, true);
+}
+async function loadReps(fromMove) {
+  const m = ctx.map; if (!m || !m.getSource("reps")) return;
+  const b = m.getBounds(), p = new URLSearchParams({ bbox: `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`, limit: "2500" });
+  if (rep.band) p.set("band", rep.band); if (rep.mode) p.set("mode", rep.mode); if (rep.q) p.set("q", rep.q);
+  let rows; try { rows = await api(`/api/repeaters?${p}`); } catch (e) { if ($("#rlist")) $("#rlist").innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+  rep.rows = rows;
+  m.getSource("reps")?.setData({ type: "FeatureCollection", features: rows.map((r) => ({ type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] }, properties: { id: r.id, mode: r.mode, call: r.callsign } })) });
+  if (rep.q && rows.length && !fromMove) ctx.fit(rows.slice(0, 50).map((r) => [r.lon, r.lat]), { maxZoom: 10 });
+  paintReps();
 }
 function paintReps() {
-  const ref = loc || (qth && { lat: qth.lat, lon: qth.lon });
-  let list = (reps || []).filter((r) => !band || r.band === band).map((r) => ({ ...r, d: ref ? distKm(ref, r) : null }));
-  if (ref) list.sort((a, b) => a.d - b.d);
-  const box = $("#replist"); if (!box) return;
-  if (!reps?.length) { box.innerHTML = `<div class="card"><h3>Aún no hay repetidores cargados</h3><p class="empty">Los datos de repetidores no se inventan: se importan desde una fuente fiable (listas de la URE, asociaciones locales o tus propios datos).</p>
-    <p class="empty" style="margin-top:10px">Importación desde CSV (columnas <code>name, callsign, band, freq_mhz, shift_khz, tone_hz, mode, height_m, range_km, lat, lon</code>):</p><pre class="num" style="font-size:12px;overflow:auto">python -m meteoguilda.radio import repetidores.csv\npython -m meteoguilda.radio coverage</pre></div>`; return; }
-  box.innerHTML = (ref ? `<p class="empty" style="margin-bottom:6px">Ordenados por distancia a ${loc ? "el punto que has tocado" : `tu QTH (${esc(qth.locator)})`}.</p>` : '<p class="empty" style="margin-bottom:6px">Indica tu locator o toca el mapa para ordenar por distancia.</p>') +
-    list.map((r) => {
-      const cov = ref && r.coverage_geojson && pointIn(r.coverage_geojson, ref);
-      return `<div class="rep"><span class="f">${fmtF(r.freq_mhz)} MHz</span><span>${cov ? '<span class="tag ok">cubre tu punto</span>' : ""}${r.d != null ? `<span class="meta">${nf.format(r.d)} km · ${compass(bearing(ref, r))}</span>` : ""}</span>
-      <span class="meta"><b>${esc(r.callsign || r.name)}</b> ${esc(r.name)} · ${esc(r.mode)}${r.tone_hz ? ` · CTCSS ${r.tone_hz} Hz` : ""}${r.shift_khz ? ` · ${r.shift_khz > 0 ? "+" : "−"}${Math.abs(r.shift_khz)} kHz (TX ${fmtF(r.freq_mhz + r.shift_khz / 1000)})` : ""}</span><span class="meta">${toLocator(r.lat, r.lon)}</span></div>`;
-    }).join("") || '<p class="empty">Ningún repetidor en esa banda.</p>';
-  drawRepMap();
+  const box = $("#rlist"); if (!box) return;
+  const at = here(), list = rep.rows.map((r) => ({ ...r, d: distKm(at, r) })).sort((a, b) => a.d - b.d).slice(0, 60);
+  if (!rep.rows.length) { box.innerHTML = '<p class="empty">No hay repetidores en esta zona con esos filtros. Prueba a alejar el mapa o a quitar filtros. Si el catálogo está vacío, el servidor aún no lo ha sincronizado.</p>'; return; }
+  box.innerHTML = `<p class="empty" style="margin-bottom:4px">${nf.format(rep.rows.length)} en el área visible; los 60 más cercanos a ${esc(at.name)}.</p>` + list.map((r) => `<button class="rep" data-id="${r.id}" type="button"><span class="f">${fmtF(r.freq_mhz)} MHz</span>
+    <span class="meta"><span class="tag" style="background:${MODE_COL[r.mode] || "#888"}22;color:${MODE_COL[r.mode] || "inherit"}">${esc(r.mode)}</span>${nf.format(r.d)} km ${compass(bearing(at, r))}</span>
+    <span class="meta"><b>${esc(r.callsign || "")}</b> ${esc(r.city || r.name)}${r.tone_hz ? ` · CTCSS ${r.tone_hz} Hz` : ""}${r.color_code != null ? ` · CC${r.color_code}` : ""}${r.shift_khz ? ` · ${r.shift_khz > 0 ? "+" : "−"}${Math.abs(r.shift_khz) >= 1000 ? Math.abs(r.shift_khz) / 1000 + " MHz" : Math.abs(r.shift_khz) + " kHz"}` : ""}</span></button>`).join("");
+  box.onclick = (e) => { const b = e.target.closest("[data-id]"); if (b) location.hash = `#/radio/repetidores/${b.dataset.id}`; };
 }
-function pointIn(geo, p) { // ray casting sobre el anillo exterior
-  const ring = geo.coordinates[0]; let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if (yi > p.lat !== yj > p.lat && p.lon < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
+async function pick(id, fly) {
+  let r = rep.rows.find((x) => x.id === id) || await api(`/api/repeaters/${id}`).catch(() => null);
+  if (!r) return;
+  rep.sel = r;
+  const d = $("#rdetail"); if (!d) return;
+  const tx = r.freq_mhz + (r.shift_khz || 0) / 1000, at = here(), dist = distKm(at, r), bm = bmLink(r);
+  d.innerHTML = `<div class="card rsel"><div class="row between" style="align-items:flex-start"><div><div class="f big" style="font-size:30px">${fmtF(r.freq_mhz)} <small style="font-size:14px">MHz</small></div>
+    <div class="meta"><b>${esc(r.callsign || "")}</b> · ${esc(r.city || r.name)} · locator ${toLocator(r.lat, r.lon)}</div></div>
+    <button class="icon-btn" id="rclose" aria-label="Cerrar ficha">${icon("x")}</button></div>
+    <div class="grid2" style="margin-top:12px"><div>
+      <div class="kv"><span>Modo</span><span>${esc(r.mode)}${r.network ? ` · ${esc(r.network)}` : ""}</span></div>
+      <div class="kv"><span>Tú transmites en</span><span>${fmtF(tx)} MHz</span></div>
+      <div class="kv"><span>Desplazamiento</span><span>${r.shift_khz ? (r.shift_khz > 0 ? "+" : "−") + Math.abs(r.shift_khz) + " kHz" : "simplex"}</span></div>
+      ${r.tone_hz ? `<div class="kv"><span>Subtono CTCSS</span><span>${r.tone_hz} Hz</span></div>` : ""}${r.color_code != null ? `<div class="kv"><span>Color code</span><span>${r.color_code}</span></div>` : ""}</div><div>
+      ${r.dmr_id ? `<div class="kv"><span>ID DMR</span><span>${r.dmr_id}</span></div>` : ""}${r.power_w ? `<div class="kv"><span>Potencia</span><span>${r.power_w} W</span></div>` : ""}
+      <div class="kv"><span>Altura antena</span><span>${nf.format(r.height_m || 10)} m</span></div><div class="kv"><span>Distancia a ${esc(at.name)}</span><span>${nf.format(dist)} km ${compass(bearing(at, r))}</span></div>
+      <div class="kv"><span>Fuente</span><span>${esc(r.source || "")}</span></div></div></div>
+    <div class="row" style="margin-top:12px"><button class="btn sm" id="rcalc" type="button">${icon("antenna", 14)} ${r.has_coverage ? "Ver cobertura" : "Calcular cobertura"}</button>
+      ${bm ? `<a class="btn ghost sm" href="${bm}" target="_blank" rel="noopener">${icon("globe", 14)} BrandMeister</a>` : ""}${r.website ? `<a class="btn ghost sm" href="${esc(r.website)}" target="_blank" rel="noopener">${icon("link", 14)} Web</a>` : ""}
+      <button class="btn ghost sm" id="rcopy" type="button">${icon("code", 14)} Copiar ajustes</button></div><p class="empty" id="rmsg" style="margin-top:8px"></p></div>`;
+  $("#rclose").addEventListener("click", () => { rep.sel = null; location.hash = "#/radio/repetidores"; });
+  $("#rcalc").addEventListener("click", async () => {
+    $("#rmsg").textContent = "Calculando línea de vista con el relieve (unos segundos)…";
+    try { rep.sel = await api(`/api/repeaters/${id}/coverage`, { method: "POST" }); $("#rmsg").textContent = ""; drawCov(); const c = rep.sel.coverage_geojson, q = getQth(); if (c && q?.lat != null) $("#rmsg").textContent = inPoly(c, q) ? "Tu QTH queda dentro de la cobertura estimada." : "Tu QTH queda fuera de la cobertura estimada."; } catch (e) { $("#rmsg").textContent = e.message; }
+  });
+  $("#rcopy").addEventListener("click", () => navigator.clipboard?.writeText(`RX ${fmtF(r.freq_mhz)} MHz | TX ${fmtF(tx)} MHz | ${r.mode}${r.tone_hz ? ` | CTCSS ${r.tone_hz} Hz` : ""}${r.color_code != null ? ` | CC${r.color_code}` : ""} | ${r.callsign || r.name}`).then(() => ctx.toast("Ajustes copiados")));
+  if (fly) ctx.fly(r.lat, r.lon, 10);
+  ctx.markers.forEach((x) => x.kind === "sel" && ctx.removeMarker(x));
+  const mk = ctx.marker(r.lon, r.lat, { label: r.callsign || r.name, cls: "on rep" }); if (mk) mk.kind = "sel";
+  drawCov();
 }
-function drawRepMap() {
-  const m = ctx.map; if (!m || sub !== "repetidores") return;
-  if (!ctx.mapLoaded) { ctx.mapReady.then(drawRepMap); return; }
-  ctx.clearMarkers(); clearLayers();
-  const list = (reps || []).filter((r) => !band || r.band === band);
-  list.forEach((r) => ctx.marker(r.lon, r.lat, { label: `${r.callsign || r.name} ${fmtF(r.freq_mhz)}`, cls: "rep" }));
-  if (qth) ctx.marker(qth.lon, qth.lat, { label: "Mi QTH", cls: "fav" });
-  if (showCov) {
-    const feats = list.filter((r) => r.coverage_geojson).map((r) => ({ type: "Feature", properties: {}, geometry: r.coverage_geojson }));
-    m.addSource("rep-c", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
-    m.addLayer({ id: "rep-cov", type: "fill", source: "rep-c", paint: { "fill-color": "#7a5bd6", "fill-opacity": 0.14 } });
-    m.addLayer({ id: "rep-cov-l", type: "line", source: "rep-c", paint: { "line-color": "#7a5bd6", "line-width": 1.2, "line-opacity": 0.7 } });
-  }
-  const pts = list.map((r) => [r.lon, r.lat]); if (qth) pts.push([qth.lon, qth.lat]);
-  if (pts.length && !drawRepMap.done) { ctx.fit(pts, { maxZoom: 9 }); drawRepMap.done = true; }
+function inPoly(geo, p) { const ring = geo.coordinates[0]; let inside = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if (yi > p.lat !== yj > p.lat && p.lon < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inside = !inside; } return inside; }
+function drawCov() {
+  const m = ctx.map; if (!m || !ctx.mapLoaded) return;
+  ["rep-cov", "rep-cov-l"].forEach((l) => m.getLayer(l) && m.removeLayer(l)); m.getSource("rep-c") && m.removeSource("rep-c");
+  const g = rep.sel?.coverage_geojson; if (!g || !rep.cov) return;
+  const c = MODE_COL[rep.sel.mode] || "#3a7bd5";
+  m.addSource("rep-c", { type: "geojson", data: { type: "Feature", properties: {}, geometry: g } });
+  m.addLayer({ id: "rep-cov", type: "fill", source: "rep-c", paint: { "fill-color": c, "fill-opacity": 0.16 } }, "rep-cl");
+  m.addLayer({ id: "rep-cov-l", type: "line", source: "rep-c", paint: { "line-color": c, "line-width": 1.6, "line-opacity": 0.8 } }, "rep-cl");
+}
+function exportChirp() {
+  const fm = rep.rows.filter((r) => r.mode === "FM" && r.shift_khz != null && r.freq_mhz).slice(0, 200);
+  if (!fm.length) return ctx.toast("No hay repetidores FM en el área visible");
+  const head = "Location,Name,Frequency,Duplex,Offset,Tone,rToneFreq,cToneFreq,DtcsCode,DtcsPolarity,RxDtcsCode,CrossMode,Mode,TStep,Skip,Power,Comment,URCALL,RPT1CALL,RPT2CALL,DVCODE";
+  const rows = fm.map((r, i) => `${i},${(r.callsign || r.name).slice(0, 8).replace(/,/g, "")},${r.freq_mhz.toFixed(6)},${r.shift_khz > 0 ? "+" : r.shift_khz < 0 ? "-" : ""},${(Math.abs(r.shift_khz) / 1000).toFixed(6)},${r.tone_hz ? "Tone" : ""},${(r.tone_hz || 88.5).toFixed(1)},${(r.tone_hz || 88.5).toFixed(1)},023,NN,023,Tone->Tone,FM,5.00,,,${(r.city || "").replace(/,/g, " ")},,,,`);
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([[head, ...rows].join("\n")], { type: "text/csv" })), download: "radioguilda-repetidores-chirp.csv" }); a.click(); URL.revokeObjectURL(a.href);
+  ctx.toast(`${fm.length} repetidores FM exportados`);
 }
 
-/* ---------- Propagación ---------- */
+/* ---------- Propagación + línea gris ---------- */
+const CAT = { normal: "#c9ced2", "sub-refracción": "#a9b7c6", "super-refracción": "#e2a548", conducto: "#c0392b" };
+export function terminator(date = new Date()) {
+  const rad = Math.PI / 180, n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const L = (280.46 + 0.9856474 * n) % 360, g = ((357.528 + 0.9856003 * n) % 360) * rad;
+  const lam = (L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad, eps = (23.439 - 0.0000004 * n) * rad;
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam)), ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam)) / rad;
+  const gmst = (280.46061837 + 360.98564736629 * n) % 360, ssLon = ((ra - gmst + 540) % 360) - 180;
+  const td = Math.abs(dec) < 1e-4 ? 1e-4 : Math.tan(dec), pts = [];
+  for (let lon = -180; lon <= 180; lon += 2) pts.push([lon, Math.atan(-Math.cos((lon - ssLon) * rad) / td) / rad]);
+  const pole = dec >= 0 ? -90 : 90;                                      // el polo opuesto al Sol está en la noche
+  return { poly: [...pts, [180, pole], [-180, pole], pts[0]], ssLon, dec: dec / rad };
+}
 async function propagacion() {
-  await placesP;
-  if (!loc || loc.name === undefined) loc = qth ? { lat: qth.lat, lon: qth.lon, name: "Mi QTH" } : { lat: 42.71, lon: 0.86, name: "Garòs" };
-  const opts = [...(qth ? [{ name: "Mi QTH", lat: qth.lat, lon: qth.lon }] : []), ...places.map((p) => ({ name: p.name, lat: p.lat, lon: p.lon }))];
-  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Propagación</h1><p>Cómo se comportará la señal en VHF/UHF y HF</p></div></div>
-    <div class="row" style="margin:16px 0"><select id="where" style="width:auto;max-width:100%">${opts.map((o, i) => `<option value="${i}" ${o.name === loc.name ? "selected" : ""}>${esc(o.name)}</option>`).join("")}${loc.name === "Punto del mapa" ? '<option value="map" selected>Punto del mapa</option>' : ""}</select><span class="chip chip-ghost">o toca el mapa</span></div>
-    <div id="prop"><div class="skeleton" style="height:200px"></div></div>`;
-  $("#where").addEventListener("change", (e) => { if (e.target.value !== "map") { loc = opts[+e.target.value]; propagacion(); } });
-  ctx.onMapClick = ({ lat, lng }) => { loc = { lat, lon: lng, name: "Punto del mapa" }; propagacion(); };
-  ctx.marker(loc.lon, loc.lat, { label: loc.name, cls: "on" }); ctx.fly(loc.lat, loc.lon, 7);
+  const my = req;
+  ctx.colb.innerHTML = `${head("Propagación", "Cómo se comportará la señal en VHF/UHF y HF")}${where()}<div id="prop"><div class="skeleton" style="height:200px"></div></div>`;
+  const go = () => propagacion(); await fillWhere(go);
+  const at = here();
+  ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" });
+  ctx.mapCtl('<button class="chip" id="gl" type="button">Ver línea gris (mundo)</button>');
+  const night = () => onMap(() => { const m = ctx.map, t = terminator(); clearLayers();
+    m.addSource("night", { type: "geojson", data: { type: "Feature", geometry: { type: "Polygon", coordinates: [t.poly] } } });
+    m.addLayer({ id: "night", type: "fill", source: "night", paint: { "fill-color": "#0b1320", "fill-opacity": 0.28 } });
+    m.addLayer({ id: "night-l", type: "line", source: "night", paint: { "line-color": "#e2a548", "line-width": 2, "line-opacity": 0.9 } });
+    m.easeTo({ center: [at.lon, 30], zoom: 1.6, duration: 700 }); });
+  $("#gl").addEventListener("click", night);
+  ctx.fly(at.lat, at.lon, 6);
   try {
-    const [p, s] = await Promise.all([api(`/api/propagation?lat=${loc.lat}&lon=${loc.lon}`), api("/api/solar").catch(() => null)]);
-    if (sub !== "propagacion") return;
+    const [p, s] = await Promise.all([api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`), api("/api/solar").catch(() => null)]);
+    if (my !== req) return;
     const S = p.serie, w = p.peor;
     $("#prop").innerHTML = `<div class="grid2">
-      <div class="card"><h3>Troposférica · VHF/UHF/microondas</h3><div class="big" style="color:${w ? CAT[w.cat] : "inherit"}">${w ? esc(w.cat) : "–"}</div>
-        <p class="empty" style="margin-top:8px">${w ? `Peor momento previsto: <b>${new Date(w.time).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</b> (${w.gradient} N/km). ` : ""}Gradiente vertical de refractividad entre superficie y ${S[0]?.level_hpa ?? 850} hPa.</p></div>
-      <div class="card"><h3>HF · actividad solar</h3>${s && (s.kp != null || s.sfi != null) ? `<div class="kv"><span>Índice Kp</span><span>${s.kp ?? "–"}</span></div><div class="kv"><span>Flujo solar (SFI)</span><span>${s.sfi ?? "–"}</span></div>${(s.resumen || []).map((t) => `<p class="empty" style="margin-top:8px">${esc(t)}</p>`).join("")}` : '<p class="empty">Datos de NOAA SWPC no disponibles ahora.</p>'}</div>
-      <div class="card"><h3>Ubicación</h3><div class="kv"><span>Locator</span><span>${esc(p.locator)}</span></div><div class="kv"><span>Coordenadas</span><span>${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}</span></div></div></div>
+      <div class="card"><h3>${icon("wave", 16)} Troposférica · VHF/UHF/microondas</h3><div class="big" style="color:${w ? CAT[w.cat] : "inherit"}">${w ? esc(w.cat) : "–"}</div>
+        <p class="empty" style="margin-top:8px">${w ? `Peor momento previsto: <b>${new Date(w.time).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</b> (${w.gradient} N/km). ` : ""}Gradiente de refractividad entre superficie y ${S[0]?.level_hpa ?? 850} hPa.</p></div>
+      <div class="card"><h3>${icon("sun", 16)} HF · actividad solar</h3>${s && (s.kp != null || s.sfi != null) ? `<div class="kv"><span>Índice Kp</span><span>${s.kp ?? "–"}</span></div><div class="kv"><span>Flujo solar (SFI)</span><span>${s.sfi ?? "–"}</span></div>${(s.resumen || []).map((t) => `<p class="empty" style="margin-top:8px">${esc(t)}</p>`).join("")}` : '<p class="empty">Datos de NOAA SWPC no disponibles ahora.</p>'}</div>
+      <div class="card"><h3>${icon("globe", 16)} Ubicación</h3><div class="kv"><span>Locator</span><span>${esc(p.locator)}</span></div><div class="kv"><span>Coordenadas</span><span>${at.lat.toFixed(3)}, ${at.lon.toFixed(3)}</span></div></div></div>
     <section class="sec"><div class="label">Gradiente de refractividad, 72 h <em>más negativo = más alcance</em></div><div class="strip" id="tstrip"></div><div id="tchart"></div>
       <div class="legend">${Object.entries(CAT).map(([k, c]) => `<span><i style="border-color:${c}"></i>${k}</span>`).join("")}</div>
-      <p class="empty" style="margin-top:10px">${esc(p.nota)}</p><p class="empty" style="margin-top:8px">¿Qué significa? <a href="#/learn/tropo">Propagación troposférica y conductos</a> · <a href="#/learn/hf">HF y actividad solar</a>.</p></section>`;
-    const axis = (it) => it.map((x, i) => ({ i, label: x.time.slice(11, 13) + "h", major: false })).filter((a) => a.i % 6 === 0);
-    renderStrip($("#tstrip"), S, [{ label: "Tropo", val: (i) => S[i].gradient, color: (v, i) => CAT[S[i]?.cat] || "#ccc", text: () => "" }].map((r) => ({ ...r, color: (v) => (v <= -157 ? CAT.conducto : v <= -79 ? CAT["super-refracción"] : v > 0 ? CAT["sub-refracción"] : CAT.normal) })), axis);
+      <p class="empty" style="margin-top:10px">${esc(p.nota)}</p><p class="empty" style="margin-top:8px">Más información: <a href="#/learn/tropo">propagación troposférica</a> · <a href="#/learn/hf">HF y actividad solar</a>. La <b>línea gris</b> (botón del mapa) marca el amanecer/atardecer, cuando los contactos DX en HF suelen mejorar.</p></section>`;
+    const ax = (it) => it.map((x, i) => ({ i, label: x.time.slice(11, 13) + "h", major: false })).filter((a) => a.i % 6 === 0);
+    renderStrip($("#tstrip"), S, [{ label: "Tropo", val: (i) => S[i].gradient, color: (v) => (v <= -157 ? CAT.conducto : v <= -79 ? CAT["super-refracción"] : v > 0 ? CAT["sub-refracción"] : CAT.normal), text: () => "" }], ax);
     renderCharts($("#tchart"), S, [{ title: "Gradiente N/km", sub: "", draw: "line", H: 160, range: (it) => [Math.min(-175, ...it.map((x) => x.gradient)) - 10, Math.max(20, ...it.map((x) => x.gradient)) + 10], mean: (i) => S[i].gradient,
-      refs: [{ v: -79, label: "super-refracción" }, { v: -157, label: "conducto" }], tip: (i) => `${new Date(S[i].time).toLocaleString("es", { weekday: "short", hour: "2-digit" })} · <b>${S[i].gradient} N/km</b> · ${S[i].cat}` }],
-      (it) => it.map((x, i) => ({ i, label: x.time.slice(11, 13) + "h", major: false })).filter((a) => a.i % 6 === 0));
+      refs: [{ v: -79, label: "super-refracción" }, { v: -157, label: "conducto" }], tip: (i) => `${new Date(S[i].time).toLocaleString("es", { weekday: "short", hour: "2-digit" })} · <b>${S[i].gradient} N/km</b> · ${S[i].cat}` }], ax);
   } catch (e) { $("#prop").innerHTML = `<div class="err"><strong>No se pudo calcular</strong><p class="empty">${esc(e.message)}</p></div>`; }
 }
 
-/* ---------- Cuaderno QSL ---------- */
-const utcInput = (d = new Date()) => d.toISOString().slice(0, 16);
-function adif(list) {
-  const f = (k, v) => (v ? `<${k}:${[...String(v)].length}>${v}` : "");
-  return `Exportado por Meteo Guilda\n<ADIF_VER:5>3.1.4<PROGRAMID:11>MeteoGuilda<EOH>\n` + list.map((q) => {
-    const d = new Date(q.when + "Z"), D = d.toISOString();
-    return [f("CALL", q.call), f("QSO_DATE", D.slice(0, 10).replace(/-/g, "")), f("TIME_ON", D.slice(11, 16).replace(":", "")), f("BAND", q.band), f("MODE", q.mode === "Otro" ? "" : q.mode.replace("-", "")),
-      f("FREQ", q.freq), f("RST_SENT", q.rsts), f("RST_RCVD", q.rstr), f("GRIDSQUARE", q.grid), f("NAME", q.name), f("COMMENT", q.notes), f("QSL_SENT", q.sent ? "Y" : "N"), f("QSL_RCVD", q.rcvd ? "Y" : "N"), f("MY_GRIDSQUARE", qth?.locator)].join("") + "<EOR>";
-  }).join("\n") + "\n";
+/* ---------- Satélites ---------- */
+let satTimer;
+function stopSat() { clearInterval(satTimer); }
+const pad2 = (n) => String(n).padStart(2, "0");
+function ics(p) {
+  const f = (iso) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  return `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Radio Guilda//ES\r\nBEGIN:VEVENT\r\nUID:${p.norad}-${f(p.aos)}@radio.guildawork.com\r\nDTSTAMP:${f(new Date().toISOString())}\r\nDTSTART:${f(p.aos)}\r\nDTEND:${f(p.los)}\r\nSUMMARY:Pase ${p.satelite} (${p.max_el}° máx.)\r\nDESCRIPTION:AOS azimut ${p.aos_az}° · máx. ${p.max_el}° · LOS azimut ${p.los_az}°. Radio Guilda\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
 }
-function dl(name, text, type) { const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([text], { type })), download: name }); a.click(); URL.revokeObjectURL(a.href); }
-let qf = { text: "", status: "" };
-function qsl() {
-  const opt = (a) => a.map((x) => `<option>${x}</option>`).join("");
-  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Cuaderno QSL</h1><p>Registra tus contactos y marca las confirmaciones</p></div><div class="d-actions"><button class="btn ghost sm" id="exp" type="button">Exportar ADIF</button><button class="btn ghost sm" id="bak" type="button">Copia JSON</button><label class="btn ghost sm" style="cursor:pointer">Importar JSON<input id="imp" type="file" accept=".json,application/json" hidden></label></div></div>
-    <div id="qstats" class="stats" style="margin:20px 0"></div>
-    <section class="sec" style="margin-top:8px"><div class="label">Nuevo contacto</div><form id="qf" class="qsl-form">
-      <div class="field"><label for="f-call">Indicativo</label><input id="f-call" required maxlength="14" style="text-transform:uppercase" autocomplete="off"></div>
-      <div class="field"><label for="f-when">Fecha y hora UTC</label><input id="f-when" type="datetime-local" value="${utcInput()}" required></div>
-      <div class="field"><label for="f-band">Banda</label><select id="f-band">${opt(BANDS)}</select></div>
-      <div class="field"><label for="f-mode">Modo</label><select id="f-mode">${opt(MODES)}</select></div>
-      <div class="field"><label for="f-freq">Frecuencia MHz</label><input id="f-freq" type="number" step="0.0001" placeholder="145.5000"></div>
-      <div class="field"><label for="f-rs">RST enviado</label><input id="f-rs" value="59"></div>
-      <div class="field"><label for="f-rr">RST recibido</label><input id="f-rr" value="59"></div>
-      <div class="field"><label for="f-grid">Locator</label><input id="f-grid" maxlength="8" placeholder="IN80do"></div>
-      <div class="field"><label for="f-name">Nombre / QTH</label><input id="f-name"></div>
-      <div class="field" style="grid-column:1/-1"><label for="f-notes">Notas</label><input id="f-notes"></div>
-      <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Añadir contacto</button><span class="empty" id="f-msg"></span></div></form></section>
-    <section class="sec"><div class="label">Contactos <em id="qcount"></em></div>
-      <div class="row" style="margin-bottom:12px"><input id="qft" type="search" placeholder="Filtrar por indicativo, nombre…" style="max-width:280px" value="${esc(qf.text)}"><select id="qfs" style="width:auto"><option value="">Todos</option><option value="pend">Pendientes de QSL</option><option value="conf">Confirmados</option></select></div>
-      <div class="tablewrap"><table><thead><tr><th>Indicativo</th><th>UTC</th><th>Banda · modo</th><th>Locator</th><th>QSL</th><th></th></tr></thead><tbody id="qrows"></tbody></table></div></section>`;
-  $("#qfs").value = qf.status;
-  $("#qf").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const g = $("#f-grid").value.trim(), pos = g ? fromLocator(g) : null;
-    if (g && !pos) { $("#f-msg").textContent = "Locator no válido (p. ej. IN80 o IN80do)"; return; }
-    qsos.unshift({ id: Date.now(), call: $("#f-call").value.trim().toUpperCase(), when: $("#f-when").value, band: $("#f-band").value, mode: $("#f-mode").value, freq: $("#f-freq").value, rsts: $("#f-rs").value, rstr: $("#f-rr").value, grid: g.toUpperCase(), name: $("#f-name").value, notes: $("#f-notes").value, sent: false, rcvd: false });
-    saveQ(); $("#f-call").value = $("#f-name").value = $("#f-notes").value = $("#f-grid").value = ""; $("#f-when").value = utcInput(); $("#f-msg").textContent = "Guardado"; qslRows(); qslMap(); $("#f-call").focus();
-  });
-  $("#qft").addEventListener("input", (e) => { qf.text = e.target.value; qslRows(); });
-  $("#qfs").addEventListener("change", (e) => { qf.status = e.target.value; qslRows(); });
-  $("#exp").addEventListener("click", () => qsos.length ? dl("meteoguilda.adi", adif(qsos), "text/plain") : ctx.toast("No hay contactos"));
-  $("#bak").addEventListener("click", () => dl("meteoguilda-qsl.json", JSON.stringify({ qth, qsos }, null, 1), "application/json"));
-  $("#imp").addEventListener("change", async (e) => { try { const d = JSON.parse(await e.target.files[0].text()); if (Array.isArray(d.qsos)) { qsos = d.qsos; saveQ(); qslRows(); qslMap(); ctx.toast("Importado"); } } catch { ctx.toast("Archivo no válido"); } });
-  $("#qrows").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-id]"); if (!b) return; const q = qsos.find((x) => x.id === +b.dataset.id);
-    if (b.dataset.act === "del") { if (confirm(`¿Borrar el contacto con ${q.call}?`)) qsos = qsos.filter((x) => x !== q); } else q[b.dataset.act] = !q[b.dataset.act];
-    saveQ(); qslRows(); qslMap();
-  });
-  qslRows(); qslMap();
+function skyplot(p) {
+  const S = 220, c = S / 2, R = 92, pt = ([az, el]) => { const r = ((90 - el) / 90) * R, a = ((az - 90) * Math.PI) / 180; return [c + r * Math.cos(a), c + r * Math.sin(a)]; };
+  const path = p.traza.map((t, i) => (i ? "L" : "M") + pt(t).map((v) => v.toFixed(1)).join(",")).join("");
+  const a = pt(p.traza[0]), z = pt(p.traza.at(-1)), mx = pt([p.max_el_az, p.max_el]);
+  return `<svg viewBox="0 0 ${S} ${S}" role="img" aria-label="Trayectoria en el cielo">${[1, 2 / 3, 1 / 3].map((f) => `<circle cx="${c}" cy="${c}" r="${R * f}" class="rose-ring"/>`).join("")}<path d="M${c - R},${c}H${c + R}M${c},${c - R}V${c + R}" class="rose-ring"/>
+    ${[["N", 0], ["E", 90], ["S", 180], ["O", 270]].map(([t, d]) => { const q = ((d - 90) * Math.PI) / 180; return `<text x="${c + (R + 12) * Math.cos(q)}" y="${c + (R + 12) * Math.sin(q) + 4}" text-anchor="middle" class="rose-l">${t}</text>`; }).join("")}
+    <path d="${path}" class="sat-path"/><circle cx="${a[0]}" cy="${a[1]}" r="4" class="sat-aos"/><circle cx="${z[0]}" cy="${z[1]}" r="4" class="sat-los"/><circle cx="${mx[0]}" cy="${mx[1]}" r="3" class="sat-max"/></svg>`;
 }
-function qslRows() {
-  const t = qf.text.toLowerCase(), list = qsos.filter((q) => (!t || `${q.call} ${q.name} ${q.notes}`.toLowerCase().includes(t)) && (!qf.status || (qf.status === "conf" ? q.rcvd : !q.rcvd)));
-  $("#qrows").innerHTML = list.map((q) => `<tr><td><b>${esc(q.call)}</b>${q.name ? `<br><small style="color:var(--ink-3)">${esc(q.name)}</small>` : ""}</td><td class="num">${esc(q.when.replace("T", " "))}</td><td>${esc(q.band)} · ${esc(q.mode)}</td><td class="num">${esc(q.grid || "–")}</td>
-    <td><button class="st ${q.sent ? "on" : ""}" data-id="${q.id}" data-act="sent" type="button">Enviada</button> <button class="st ${q.rcvd ? "on" : ""}" data-id="${q.id}" data-act="rcvd" type="button">Recibida</button></td><td><button class="icon-btn" data-id="${q.id}" data-act="del" aria-label="Borrar" style="width:28px;height:28px">×</button></td></tr>`).join("") ||
-    `<tr><td colspan="6" class="empty" style="text-align:center;padding:20px">${qsos.length ? "Sin resultados" : "Todavía no has registrado ningún contacto"}</td></tr>`;
-  $("#qcount").textContent = `${list.length} de ${qsos.length}`;
-  const conf = qsos.filter((q) => q.rcvd).length, calls = new Set(qsos.map((q) => q.call)).size, grids = new Set(qsos.filter((q) => q.grid).map((q) => q.grid.slice(0, 4))).size;
-  const far = qth ? Math.max(0, ...qsos.filter((q) => q.grid && fromLocator(q.grid)).map((q) => distKm(qth, fromLocator(q.grid)))) : 0;
-  $("#qstats").innerHTML = [["QSO", qsos.length], ["Confirmados", `${conf}`], ["Indicativos", calls], ["Cuadros", grids], ["Más lejano", far ? `${nf.format(far)} km` : "–"]].map(([l, v]) => `<div class="stat"><span class="lbl">${l}</span><span class="num">${v}</span></div>`).join("");
+async function satelites() {
+  const my = req, at = here();
+  ctx.colb.innerHTML = `${head("Satélites", "Pasos de la ISS y de satélites de aficionados sobre tu ubicación")}${where()}
+    <div class="row" style="margin-bottom:16px"><span class="lbl">Elevación mínima</span><span class="seg" id="mel">${[10, 20, 30].map((v) => `<button type="button" data-v="${v}" aria-pressed="${v === (satelites.el || 10)}">${v}°</button>`).join("")}</span></div>
+    <div id="sats"><div class="skeleton" style="height:140px"></div></div>`;
+  await fillWhere(() => satelites());
+  ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 5);
+  $("#mel").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { satelites.el = +b.dataset.v; satelites(); } });
+  try {
+    const d = await api(`/api/satellites/passes?lat=${at.lat}&lon=${at.lon}&hours=36&min_el=${satelites.el || 10}`);
+    if (my !== req) return;
+    const t = (iso) => new Date(iso).toLocaleString("es", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    $("#sats").innerHTML = `<div class="card" id="sdet" style="margin-bottom:16px" hidden></div><div class="grid2" id="sp">${d.pasos.slice(0, 14).map((p, i) => `<button class="card pass" data-i="${i}" type="button"><div class="row between"><b>${esc(p.satelite)}</b><span class="pill ${p.max_el >= 45 ? "lv0" : "lv1"}"><i></i>${p.max_el}°</span></div>
+      <div class="num" style="font-size:18px;margin:6px 0">${t(p.aos)}</div><div class="meta">${Math.round(p.duracion_s / 60)} min · sale por ${compass(p.aos_az)} · entra por ${compass(p.los_az)}</div></button>`).join("") || '<p class="empty">No hay pasos con esa elevación en 36 h.</p>'}</div>
+    <section class="sec"><div class="label">Satélites seguidos</div><p class="empty">${d.satelites.map((s) => esc(s.nombre)).join(" · ")}</p>
+      <p class="empty" style="margin-top:10px"><b>ISS:</b> APRS en ${esc(d.iss.aprs)}; voz: ${esc(d.iss.voz)}. ${esc(d.nota)}</p></section>`;
+    const show1 = (i) => { const p = d.pasos[i], box = $("#sdet"); box.hidden = false;
+      box.innerHTML = `<div class="row between" style="align-items:flex-start"><div><h3 style="margin:0">${esc(p.satelite)}</h3><p class="empty">${t(p.aos)} → ${new Date(p.los).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })} (hora de tu dispositivo)</p></div>
+        <button class="btn ghost sm" id="ics" type="button">${icon("download", 14)} Añadir al calendario</button></div><div class="grid2"><div class="skyplot">${skyplot(p)}</div><div>
+        <div class="kv"><span>Aparece</span><span>${compass(p.aos_az)} (${p.aos_az}°)</span></div><div class="kv"><span>Máxima elevación</span><span>${p.max_el}° al ${compass(p.max_el_az)}</span></div><div class="kv"><span>Desaparece</span><span>${compass(p.los_az)} (${p.los_az}°)</span></div>
+        <div class="kv"><span>Distancia mínima</span><span>${nf.format(p.distancia_min_km)} km</span></div><div class="kv"><span>Duración</span><span>${Math.floor(p.duracion_s / 60)}:${pad2(p.duracion_s % 60)}</span></div></div></div>`;
+      $("#ics").addEventListener("click", () => { const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([ics(p)], { type: "text/calendar" })), download: `pase-${p.satelite.replace(/\W+/g, "-")}.ics` }); a.click(); URL.revokeObjectURL(a.href); });
+      $$("#sp .pass").forEach((b, k) => b.setAttribute("aria-pressed", String(k === i))); };
+    $("#sp")?.addEventListener("click", (e) => { const b = e.target.closest("[data-i]"); if (b) show1(+b.dataset.i); });
+    if (d.pasos.length) show1(0);
+  } catch (e) { $("#sats").innerHTML = `<div class="err"><strong>No se pudieron calcular los pasos</strong><p class="empty">${esc(e.message)}</p></div>`; }
 }
-function qslMap() {
-  const m = ctx.map; if (!m || sub !== "qsl") return;
-  if (!ctx.mapLoaded) { ctx.mapReady.then(qslMap); return; }
-  ctx.clearMarkers(); clearLayers();
-  const pts = [];
-  if (qth) { ctx.marker(qth.lon, qth.lat, { label: `Mi QTH ${qth.locator}`, cls: "fav" }); pts.push([qth.lon, qth.lat]); }
-  const lines = [];
-  qsos.forEach((q) => { const p = q.grid && fromLocator(q.grid); if (!p) return; ctx.marker(p.lon, p.lat, { label: q.call, cls: "qso" }); pts.push([p.lon, p.lat]); if (qth) lines.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[qth.lon, qth.lat], [p.lon, p.lat]] } }); });
-  m.addSource("qso-l", { type: "geojson", data: { type: "FeatureCollection", features: lines } });
-  m.addLayer({ id: "qso-lines", type: "line", source: "qso-l", paint: { "line-color": "#2c8a5a", "line-width": 1.2, "line-opacity": 0.6, "line-dasharray": [2, 2] } });
-  if (pts.length > 1) ctx.fit(pts, { maxZoom: 6 });
+
+/* ---------- Operación portátil ---------- */
+async function portatil() {
+  const my = req;
+  ctx.colb.innerHTML = `${head("Operación portátil", "Mejor ventana para operar al aire libre (SOTA, POTA, campo) y alertas para tu antena")}${where()}<div id="pt"><div class="skeleton" style="height:180px"></div></div>`;
+  await fillWhere(() => portatil());
+  const at = here(); ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 8);
+  try {
+    const d = await api(`/api/portable?lat=${at.lat}&lon=${at.lon}`);
+    if (my !== req) return;
+    const H = d.horas, tm = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+    const col = ["#2c8a5a", "#e2a548", "#c0392b"];
+    $("#pt").innerHTML = `${d.horas_con_tormenta.length ? `<div class="warn-note" style="margin-top:0">${icon("bolt", 18)}<span><b>Riesgo de tormenta</b> a las ${[...new Set(d.horas_con_tormenta.map((t) => tm(t)))].slice(0, 6).join(", ")}. Desconecta antenas y no operes al aire libre con tormenta cerca.</span></div>` : ""}
+      <div class="kv" style="margin:10px 0"><span>Ubicación</span><span>${esc(d.ubicacion.locator)} · ${nf.format(d.ubicacion.altitud_m ?? 0)} m</span></div>
+      <section class="sec" style="margin-top:12px"><div class="label">Mejores ventanas</div>${d.mejores_ventanas.length ? `<div class="windows">${d.mejores_ventanas.map((w) => `<div class="win"><span class="pill lv0"><i></i>${w.horas} h limpias</span><b>${new Date(w.desde).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" })} – ${tm(w.hasta)}</b><small>Sin rachas peligrosas, lluvia ni tormentas.</small></div>`).join("")}</div>` : '<p class="empty">No hay tramos de 2 h o más sin incidencias en las próximas 48 h.</p>'}</section>
+      <section class="sec"><div class="label">Próximas 48 h <em>verde = bien, ámbar = precaución, rojo = no</em></div><div class="strip" id="pstrip"></div>
+        <div class="legend" style="margin-top:8px"><span>${icon("wind", 13)} racha km/h</span><span>${icon("drop", 13)} lluvia mm/h</span></div></section>
+      <section class="sec"><div class="label">Antes de montar</div><ul class="chk"><li>Tirantes y piquetas según el viento previsto; baja el mástil si hay rachas fuertes.</li><li>Pon una buena toma de tierra y usa cable con menos de 5 m expuesto a la tormenta.</li><li>Avisa a alguien de tu ruta y de la hora de vuelta; el móvil puede no tener cobertura.</li><li>Comprueba la hora del ocaso: volver de noche suma riesgo.</li></ul></section>
+      <p class="empty">${esc(d.aviso)}</p>`;
+    const ax = (it) => it.map((x, i) => ({ i, label: hh(x.t.slice(0, 16)), major: false })).filter((a) => a.i % 4 === 0);
+    const lv = (i) => H[i].nivel;
+    renderStrip($("#pstrip"), H, [
+      { label: "Riesgo", val: (i) => lv(i), color: (v) => col[v], text: () => "", tip: (i) => `${tm(H[i].t)}: ${H[i].motivos.join(" · ") || "sin incidencias"}` },
+      { label: "Racha", val: (i) => H[i].racha_kmh, color: (v) => (v >= 60 ? "#e6a99f" : v >= 40 ? "#f0d9a6" : "#e8ece6"), text: (v) => nf.format(v) },
+      { label: "Lluvia", val: (i) => H[i].lluvia_mm, color: (v) => (v >= 3 ? "#7e9fd0" : v >= 0.5 ? "#c4d4ec" : "#eef1f4"), text: (v) => (v < 0.05 ? "" : nf1.format(v)) },
+    ], ax);
+  } catch (e) { $("#pt").innerHTML = `<div class="err"><strong>No se pudo calcular</strong><p class="empty">${esc(e.message)}</p></div>`; }
 }
 
 /* ---------- Herramientas ---------- */
+const Q = [["QRA", "Nombre de mi estación es…"], ["QRG", "Frecuencia exacta"], ["QRK", "Inteligibilidad de sus señales"], ["QRL", "Frecuencia ocupada"], ["QRM", "Interferencias de otras estaciones"], ["QRN", "Ruido atmosférico (estáticos, tormentas)"], ["QRO", "Aumentar potencia"], ["QRP", "Reducir potencia (baja potencia)"], ["QRS", "Transmitir más despacio"], ["QRT", "Cesar la transmisión"], ["QRV", "Estoy listo"], ["QRX", "Espere / volveré a llamar"], ["QRZ", "¿Quién me llama?"], ["QSB", "Desvanecimiento (fading)"], ["QSL", "Acuso recibo / confirmo el contacto"], ["QSO", "Contacto entre estaciones"], ["QSY", "Cambiar de frecuencia"], ["QTH", "Ubicación"], ["QTR", "Hora exacta"]];
+const ICAO = { A: "Alfa", B: "Bravo", C: "Charlie", D: "Delta", E: "Echo", F: "Foxtrot", G: "Golf", H: "Hotel", I: "India", J: "Juliett", K: "Kilo", L: "Lima", M: "Mike", N: "November", O: "Oscar", P: "Papa", Q: "Quebec", R: "Romeo", S: "Sierra", T: "Tango", U: "Uniform", V: "Victor", W: "Whiskey", X: "X-ray", Y: "Yankee", Z: "Zulu", 0: "Zero", 1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine" };
+const CTCSS = [67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2, 110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 162.2, 167.9, 173.8, 179.9, 186.2, 192.8, 203.5, 210.7, 218.1, 225.7, 233.6, 241.8, 250.3];
+const MORSE = { A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....", I: "..", J: ".---", K: "-.-", L: ".-..", M: "--", N: "-.", O: "---", P: ".--.", Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-", Y: "-.--", Z: "--..", 0: "-----", 1: ".----", 2: "..---", 3: "...--", 4: "....-", 5: ".....", 6: "-....", 7: "--...", 8: "---..", 9: "----.", "/": "-..-.", "?": "..--..", ".": ".-.-.-", ",": "--..--" };
+function playMorse(code, wpm = 18) {
+  const ac = new (window.AudioContext || window.webkitAudioContext)(), u = 1.2 / wpm; let t = ac.currentTime + 0.05;
+  for (const ch of code) { if (ch === " ") { t += u * 2; continue; } if (ch === "/") { t += u * 4; continue; }
+    const o = ac.createOscillator(), g = ac.createGain(), d = ch === "." ? u : u * 3; o.frequency.value = 650; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25, t + 0.006); g.gain.setValueAtTime(0.25, t + d - 0.006); g.gain.linearRampToValueAtTime(0, t + d);
+    o.connect(g).connect(ac.destination); o.start(t); o.stop(t + d); t += d + u; }
+  setTimeout(() => ac.close(), (t - ac.currentTime + 0.5) * 1000);
+}
 function herramientas() {
-  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Herramientas</h1><p>Pequeñas utilidades de radioaficionado, sin salir de la web</p></div></div>
+  const q = getQth();
+  ctx.colb.innerHTML = `${head("Herramientas", "Pequeñas utilidades de radioaficionado, sin salir de la web")}
   <div class="grid2" style="margin-top:20px">
-    <div class="card"><h3>Locator Maidenhead ↔ coordenadas</h3><div class="field"><label for="t-loc">Locator</label><input id="t-loc" placeholder="JN58td"></div><div class="field"><label for="t-ll">Latitud, longitud</label><input id="t-ll" placeholder="48.1466, 11.6083"></div><p class="empty" id="t-out"></p></div>
-    <div class="card"><h3>Distancia y rumbo</h3><div class="field"><label for="d-a">Desde (locator)</label><input id="d-a" value="${esc(qth?.locator || "")}" placeholder="IN80do"></div><div class="field"><label for="d-b">Hasta (locator)</label><input id="d-b" placeholder="JN58td"></div><p class="empty" id="d-out"></p></div>
-    <div class="card"><h3>Alfabeto fonético</h3><div class="field"><label for="p-in">Indicativo o texto</label><input id="p-in" placeholder="EA3XYZ"></div><p class="empty" id="p-out" style="line-height:1.8"></p></div>
-    <div class="card"><h3>Código Q</h3><div class="field"><input id="q-in" type="search" placeholder="Buscar: QSL, QTH, ruido…" aria-label="Buscar código Q"></div><div class="qgrid" id="q-out"></div></div>
-  </div>
+    <div class="card"><h3>${icon("globe", 16)} Locator Maidenhead y coordenadas</h3><div class="field"><label for="t-loc">Locator</label><input id="t-loc" placeholder="JN58td"></div><div class="field"><label for="t-ll">Latitud, longitud</label><input id="t-ll" placeholder="48.1466, 11.6083"></div><p class="empty" id="t-out"></p></div>
+    <div class="card"><h3>${icon("compass", 16)} Distancia y rumbo</h3><div class="field"><label for="d-a">Desde (locator)</label><input id="d-a" value="${esc(q?.locator || "")}" placeholder="IN80do"></div><div class="field"><label for="d-b">Hasta (locator)</label><input id="d-b" placeholder="JN58td"></div><p class="empty" id="d-out"></p></div>
+    <div class="card"><h3>${icon("antenna", 16)} Longitud de antena</h3><div class="field"><label for="a-f">Frecuencia (MHz)</label><input id="a-f" type="number" step="0.001" placeholder="145.500"></div><div class="field"><label for="a-vf">Factor de velocidad del cable/elemento</label><input id="a-vf" type="number" step="0.01" value="0.95"></div><div id="a-out" class="empty"></div></div>
+    <div class="card"><h3>${icon("code", 16)} Morse</h3><div class="field"><label for="m-in">Texto</label><input id="m-in" placeholder="CQ CQ DE EA3XYZ"></div><p class="num" id="m-out" style="word-break:break-all;font-size:15px"></p><button class="btn ghost sm" id="m-play" type="button">${icon("wave", 14)} Reproducir</button></div>
+    <div class="card"><h3>${icon("book", 16)} Alfabeto fonético</h3><div class="field"><label for="p-in">Indicativo o texto</label><input id="p-in" placeholder="EA3XYZ"></div><p class="empty" id="p-out" style="line-height:1.8"></p></div>
+    <div class="card"><h3>${icon("list", 16)} Código Q</h3><div class="field"><input id="q-in" type="search" placeholder="Buscar: QSL, QTH, ruido…" aria-label="Buscar código Q"></div><div class="qgrid" id="q-out"></div></div>
+    <div class="card"><h3>${icon("gauge", 16)} Potencia W y dBm</h3><div class="field"><label for="w-in">Vatios</label><input id="w-in" type="number" step="any" placeholder="5"></div><p class="empty" id="w-out"></p></div></div>
   <section class="sec"><div class="label">Subtonos CTCSS estándar <em>Hz</em></div><div class="qgrid">${CTCSS.map((t) => `<div><b>${t.toFixed(1)}</b></div>`).join("")}</div>
-    <p class="empty" style="margin-top:10px">El subtono (a veces llamado «SQL» o tono de squelch codificado) se transmite por debajo de la voz para abrir el repetidor. Se configura en el campo TX tone de tu equipo.</p></section>`;
+    <p class="empty" style="margin-top:10px">El subtono (a veces llamado «SQL» o squelch codificado) se transmite por debajo de la voz para abrir el repetidor. Se configura en el campo TX tone de tu equipo.</p></section>`;
   const loc = $("#t-loc"), ll = $("#t-ll"), out = $("#t-out");
   loc.addEventListener("input", () => { const p = fromLocator(loc.value); out.textContent = p ? `Centro del cuadro: ${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` : ""; if (p) ll.value = `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`; });
   ll.addEventListener("input", () => { const [a, b] = ll.value.split(/[,;\s]+/).map(Number); if (isFinite(a) && isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180) { loc.value = toLocator(a, b); out.textContent = `Locator: ${toLocator(a, b)}`; } });
-  const dist = () => { const a = fromLocator($("#d-a").value), b = fromLocator($("#d-b").value); $("#d-out").innerHTML = a && b ? `<b class="num">${nf.format(distKm(a, b))} km</b> · rumbo <b class="num">${Math.round(bearing(a, b))}°</b> (${compass(bearing(a, b))}) · inverso ${Math.round((bearing(b, a)))}°` : ""; };
+  const dist = () => { const a = fromLocator($("#d-a").value), b = fromLocator($("#d-b").value); $("#d-out").innerHTML = a && b ? `<b class="num">${nf.format(distKm(a, b))} km</b> · rumbo <b class="num">${Math.round(bearing(a, b))}°</b> (${compass(bearing(a, b))}) · inverso ${Math.round(bearing(b, a))}°` : ""; };
   $("#d-a").addEventListener("input", dist); $("#d-b").addEventListener("input", dist); dist();
+  const ant = () => { const f = +$("#a-f").value, vf = +$("#a-vf").value || 0.95; $("#a-out").innerHTML = f > 0 ? `<div class="kv"><span>Dipolo λ/2 (total)</span><span>${(150 * vf / f).toFixed(2)} m</span></div><div class="kv"><span>Cada brazo</span><span>${(75 * vf / f).toFixed(2)} m</span></div><div class="kv"><span>Vertical λ/4</span><span>${(71.25 * vf / f).toFixed(2)} m</span></div><p class="empty" style="margin-top:6px">Punto de partida: ajusta con un analizador o ROE-metro y recorta poco a poco.</p>` : ""; };
+  $("#a-f").addEventListener("input", ant); $("#a-vf").addEventListener("input", ant);
+  const mor = () => { const code = [...$("#m-in").value.toUpperCase()].map((c) => (c === " " ? "/" : MORSE[c] || "")).filter((x) => x !== "").join(" "); $("#m-out").textContent = code; $("#m-play").dataset.code = code; };
+  $("#m-in").addEventListener("input", mor); $("#m-play").addEventListener("click", (e) => e.currentTarget.dataset.code && playMorse(e.currentTarget.dataset.code));
   $("#p-in").addEventListener("input", (e) => { $("#p-out").innerHTML = [...e.target.value.toUpperCase()].filter((c) => ICAO[c]).map((c) => `<b>${c}</b> ${ICAO[c]}`).join(" · "); });
   const qq = () => { const t = $("#q-in").value.toLowerCase(); $("#q-out").innerHTML = Q.filter(([c, d]) => !t || c.toLowerCase().includes(t) || d.toLowerCase().includes(t)).map(([c, d]) => `<div><b>${c}</b><br>${esc(d)}</div>`).join(""); };
   $("#q-in").addEventListener("input", qq); qq();
-  if (qth) ctx.marker(qth.lon, qth.lat, { label: "Mi QTH", cls: "fav" });
+  $("#w-in").addEventListener("input", (e) => { const w = +e.target.value; $("#w-out").innerHTML = w > 0 ? `<b class="num">${(10 * Math.log10(w * 1000)).toFixed(1)} dBm</b> · ${(w * 1000).toLocaleString("es")} mW` : ""; });
+  if (q?.lat != null) ctx.marker(q.lon, q.lat, { label: "Mi QTH", cls: "fav" });
 }

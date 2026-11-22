@@ -1,9 +1,19 @@
 import { $, $$, api, esc, LS } from "./util.js";
+import { icon, hydrate } from "./icons.js";
+import { getKey, setKey, syncing, pullSettings, createProfile, call } from "./sync.js";
 import * as forecast from "./forecast.js";
 import * as routes from "./routes.js";
 import * as radio from "./radio.js";
 import * as learn from "./learn.js";
 
+const BRAND = { forecast: ["Meteo Guilda", "Datos abiertos y balizas reales"], routes: ["Meteo Guilda", "Rutas con el tiempo a la hora de paso"],
+  radio: ["Radio Guilda", "Repetidores, propagación y satélites"], learn: ["Guilda", "Meteo y radio, explicadas"] };
+const MARKS = {
+  both: `<svg class="mark" viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 26.5 12 11.5l5 8.5 3.5-5 8 11.5Z"/><path d="M8.46 7.46A5 5 0 0 1 15.54 7.46M5.64 4.64A9 9 0 0 1 18.36 4.64"/><circle cx="25" cy="7.2" r="2.6"/></svg>`,
+  meteo: `<svg class="mark" viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 26.5 12 11.5l5 8.5 3.5-5 8 11.5Z"/><circle cx="25" cy="7.2" r="2.6"/><path d="M25 1.6v1M25 11.4v1M19.8 7.2h1M29.2 7.2h1M21.4 3.6l.7.7M27.9 10.1l.7.7M21.4 10.8l.7-.7M27.9 4.3l.7-.7"/></svg>`,
+  radio: `<svg class="mark" viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 26.5 12 11.5l5 8.5 3.5-5 8 11.5Z"/><path d="M8.46 7.46A5 5 0 0 1 15.54 7.46M5.64 4.64A9 9 0 0 1 18.36 4.64"/></svg>`,
+};
+const MARK_OF = { forecast: "meteo", routes: "meteo", radio: "radio", learn: "both" };
 const SECTIONS = { forecast, routes, radio, learn };
 const app = $("#app"), cola = $("#cola"), colb = $("#detail");
 const phone = () => matchMedia("(max-width:760px)").matches;
@@ -40,11 +50,14 @@ const ctx = {
   fly(lat, lon, zoom = 9) { ctx.map?.easeTo({ center: [lon, lat], zoom: Math.max(ctx.map.getZoom(), zoom), duration: 700 }); },
   stationsOn: false,
   stations(on) { ctx.stationsOn = on; if (ctx.map?.getLayer("st")) ctx.map.setLayoutProperty("st", "visibility", on ? "visible" : "none"); if (on) loadStations(); },
-  mapCtl(html) { $("#mapctl").innerHTML = html; },
+  mapCtl(html) { $("#mapctl").innerHTML = html; hydrate($("#mapctl")); },
+  brand(section, sub) { const [n, s] = BRAND[section]; return `<div class="brand">${MARKS[MARK_OF[section]]}<div class="brand-text"><strong>${n}</strong><span>${esc(sub || s)}</span></div></div>`; },
+  icon, hydrate,
 };
 
 /* ---------- Tema ---------- */
-$("#theme").addEventListener("click", () => { root.dataset.theme = isDark() ? "light" : "dark"; LS.set("mg-theme", root.dataset.theme); applyMapTheme(); });
+const paintThemeIcon = () => { $("#theme").innerHTML = icon(isDark() ? "sun" : "moon"); };
+$("#theme").addEventListener("click", () => { root.dataset.theme = isDark() ? "light" : "dark"; LS.set("mg-theme", root.dataset.theme); applyMapTheme(); paintThemeIcon(); });
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applyMapTheme);
 
 /* ---------- Mapa ---------- */
@@ -100,6 +113,7 @@ function route() {
     ctx.onMapClick = null; ctx.clearMarkers(); ctx.mapCtl(""); cola.innerHTML = ""; colb.innerHTML = "";
     current = name;
     document.body.dataset.section = name;
+    document.title = name === "radio" ? "Radio Guilda" : name === "learn" ? "Aprende · Guilda" : "Meteo Guilda";
     $$(".nav .nv").forEach((b) => (b.dataset.s === name ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
     ctx.pane(phone() ? "list" : "detail");
     SECTIONS[name].mount(ctx);
@@ -109,6 +123,50 @@ function route() {
 $$(".nav .nv").forEach((b) => b.addEventListener("click", () => { location.hash = "#/" + b.dataset.s; }));
 $$(".panes button").forEach((b) => b.addEventListener("click", () => ctx.pane(b.dataset.pane)));
 window.addEventListener("hashchange", route);
+/* ---------- Instalación (webapp) ---------- */
+let deferred;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; $("#install").hidden = false; });
+addEventListener("appinstalled", () => { $("#install").hidden = true; ctx.toast("App instalada"); });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+const iOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !standalone;
+if (iOS) $("#install").hidden = false;
+$("#install").addEventListener("click", async () => {
+  if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; $("#install").hidden = true; }
+  else if (iOS) openDialog(`<h2>Instalar en iPhone o iPad</h2><p>Pulsa el botón Compartir de Safari y elige <b>Añadir a pantalla de inicio</b>. Se abrirá a pantalla completa y funcionará sin conexión con los últimos datos.</p><form method="dialog"><button class="btn">Entendido</button></form>`);
+});
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("/sw.js").catch(() => {});
+addEventListener("offline", () => ($("#offline").hidden = false));
+addEventListener("online", () => ($("#offline").hidden = true));
+
+/* ---------- Sincronización y API ---------- */
+const dlg = $("#dlg");
+function openDialog(html) { dlg.innerHTML = html; hydrate(dlg); dlg.showModal?.(); }
+dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+$("#syncbtn").addEventListener("click", renderSync);
+function renderSync(msg = "") {
+  const k = getKey(), host = location.origin;
+  openDialog(`<h2>Sincronización y acceso por API</h2>
+    <p>Guarda favoritos, tu QTH y tu cuaderno de contactos en el servidor con una <b>clave secreta</b>. Con ella los ves desde cualquier dispositivo y también por la API y el MCP. No hay cuentas ni correos.</p>
+    ${k ? `<div class="field"><span class="lbl">Tu clave</span><div class="row"><input id="kv" type="password" readonly value="${esc(k)}" style="flex:1"><button class="btn ghost sm" id="kshow" type="button">Ver</button><button class="btn ghost sm" id="kcopy" type="button">Copiar</button></div></div>
+      <p class="empty">Quien tenga la clave puede leer y modificar tu cuaderno. Ejemplo de uso:</p>
+      <pre class="num code">curl -H "Authorization: Bearer TU_CLAVE" ${esc(host)}/api/qso/stats</pre>
+      <div class="row" style="margin-top:14px"><button class="btn ghost sm" id="kout" type="button">Dejar de sincronizar aquí</button><button class="btn ghost sm danger" id="kdel" type="button">Borrar mis datos del servidor</button></div>`
+    : `<div class="row"><button class="btn" id="kmk" type="button">Activar sincronización</button></div>
+      <div class="field" style="margin-top:16px"><label for="kin">¿Ya tienes una clave?</label><div class="row"><input id="kin" type="password" placeholder="mg_…" style="flex:1"><button class="btn ghost sm" id="kuse" type="button">Usar</button></div></div>`}
+    <p class="empty" id="kmsg">${esc(typeof msg === "string" ? msg : "")}</p>
+    <form method="dialog" style="margin-top:12px"><button class="btn ghost sm">Cerrar</button></form>`);
+  const m = (t) => ($("#kmsg").textContent = t);
+  $("#kmk")?.addEventListener("click", async () => { try { m("Creando…"); await createProfile(); renderSync("Sincronización activada. Guarda tu clave."); } catch (e) { m(e.message); } });
+  $("#kuse")?.addEventListener("click", async () => { const v = $("#kin").value.trim(); setKey(v); if (await pullSettings()) { renderSync("Clave aceptada. Recarga para ver tus datos."); } else { setKey(null); m("Clave no válida"); } });
+  $("#kshow")?.addEventListener("click", () => { const i = $("#kv"); i.type = i.type === "password" ? "text" : "password"; });
+  $("#kcopy")?.addEventListener("click", () => navigator.clipboard?.writeText(getKey()).then(() => m("Clave copiada")));
+  $("#kout")?.addEventListener("click", () => { setKey(null); renderSync("Este dispositivo ya no sincroniza."); });
+  $("#kdel")?.addEventListener("click", async () => { if (confirm("¿Borrar del servidor tu cuaderno y ajustes? No se puede deshacer.")) { try { await call("/api/profile", { method: "DELETE" }); } catch {} setKey(null); renderSync("Datos borrados del servidor."); } });
+}
+ctx.openDialog = openDialog;
+
+hydrate(document);
+paintThemeIcon();
 setupMap();
-route();
+pullSettings().finally(route);
 addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const s = $("#q"); if (s) { e.preventDefault(); s.focus(); } } });
