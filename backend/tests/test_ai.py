@@ -18,7 +18,8 @@ def fake_openmeteo():
 
 
 def test_summarize_confidence():
-    s = openmeteo.summarize(fake_openmeteo())
+    from datetime import datetime, timezone
+    s = openmeteo.summarize(fake_openmeteo(), now=datetime(2026, 11, 22, 0, 0, tzinfo=timezone.utc))
     st = s["steps"][0]
     assert st["temperature_2m"]["mean"] == 10.5
     assert st["wind_speed_10m"]["max"] - st["wind_speed_10m"]["min"] == 4  # spread 4 -> media
@@ -57,3 +58,12 @@ async def test_generate_falls_back_between_models(monkeypatch):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
         res = await ai.generate(ctx, c, api_key="k")
     assert res and res[1] == "c:free"
+
+
+def test_summarize_skips_past_hours():
+    from datetime import datetime, timezone
+    d = fake_openmeteo()
+    d["utc_offset_seconds"] = 3600
+    # 10:30 UTC = 11:30 local -> primer tramo empieza a las 11:00
+    s = openmeteo.summarize(d, now=datetime(2026, 11, 22, 10, 30, tzinfo=timezone.utc))
+    assert s["steps"][0]["time"] == "2026-11-22T11:00"

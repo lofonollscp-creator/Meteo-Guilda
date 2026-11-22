@@ -2,75 +2,55 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meteo Guilda</title>
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<style>
-  :root{--bg:#0f1720;--fg:#e8eef4;--card:#182430;--ac:#4cc3a0;--warn:#f0b54a}
-  *{box-sizing:border-box} body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--fg);display:flex;flex-direction:column;height:100vh}
-  header{padding:10px 16px;background:var(--card);display:flex;gap:12px;align-items:baseline}
-  header h1{font-size:18px;margin:0;color:var(--ac)} header span{opacity:.7;font-size:13px}
-  main{flex:1;display:grid;grid-template-columns:1fr 380px;min-height:0}
-  #map{min-height:300px} aside{overflow:auto;padding:14px;background:var(--card)}
-  h2{font-size:15px;margin:14px 0 6px;color:var(--ac)} ul{margin:4px 0;padding-left:18px}
-  .tag{display:inline-block;padding:2px 8px;border-radius:10px;background:#24384a;font-size:12px}
-  table{width:100%;border-collapse:collapse;font-size:12px} td,th{padding:3px 4px;text-align:right;border-bottom:1px solid #24384a} th:first-child,td:first-child{text-align:left}
-  .warn{color:var(--warn)} details{margin-top:12px}
-  @media(max-width:800px){main{grid-template-columns:1fr;grid-template-rows:50% 50%}}
-</style>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Meteo Guilda · Previsión a partir de datos abiertos</title>
+<meta name="description" content="Previsión meteorológica elaborada a partir de modelos numéricos abiertos y balizas meteorológicas APRS, con lectura de IA y datos crudos a la vista.">
+<meta name="theme-color" content="#f4f3ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c1115" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/newsreader-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="css/app.css">
+<script>try{var t=localStorage.getItem('mg-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
-<body>
-<header><h1>Meteo Guilda</h1><span>Datos abiertos + balizas APRS + IA · toca el mapa</span></header>
-<main>
-  <div id="map"></div>
-  <aside id="out"><p>Toca un punto del mapa para obtener el pronóstico.</p>
-  <p class="warn">Apoyo informativo. Consulta siempre los avisos oficiales (AEMET, Salvamento Marítimo) antes de actividades de riesgo.</p></aside>
-</main>
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script>
-const out = document.getElementById('out');
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const map = new maplibregl.Map({container:'map',center:[-5.5,42.9],zoom:6,style:{version:8,
-  sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap'}},
-  layers:[{id:'osm',type:'raster',source:'osm'}]}});
-let marker;
-async function loadStations(){
-  const b = map.getBounds();
-  try{
-    const r = await fetch(`/api/stations?south=${b.getSouth()}&west=${b.getWest()}&north=${b.getNorth()}&east=${b.getEast()}`);
-    const st = (await r.json()).filter(s=>s.quality==='ok');
-    const fc = {type:'FeatureCollection',features:st.map(s=>({type:'Feature',geometry:{type:'Point',coordinates:[s.lon,s.lat]},properties:s}))};
-    map.getSource('st')?.setData(fc);
-  }catch(e){}
-}
-map.on('load',()=>{
-  map.addSource('st',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-  map.addLayer({id:'st',type:'circle',source:'st',paint:{'circle-radius':5,'circle-color':'#4cc3a0','circle-stroke-width':1,'circle-stroke-color':'#fff'}});
-  map.on('click','st',e=>{const p=e.features[0].properties;
-    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>${esc(p.callsign)}</b><br>${p.temp_c??'–'} °C · viento ${p.wind_ms!=null?Math.round(p.wind_ms*3.6):'–'} km/h`).addTo(map);e.originalEvent.cancelBubble=true;});
-  loadStations(); map.on('moveend',loadStations);
-});
-map.on('click', async e=>{
-  if(map.queryRenderedFeatures(e.point,{layers:['st']}).length) return;
-  const {lat,lng}=e.lngLat; marker?.remove(); marker=new maplibregl.Marker().setLngLat([lng,lat]).addTo(map);
-  out.innerHTML='<p>Consultando modelos y generando pronóstico…</p>';
-  try{
-    const r = await fetch(`/api/forecast?lat=${lat.toFixed(4)}&lon=${lng.toFixed(4)}`);
-    if(!r.ok) throw new Error((await r.json()).detail||r.status);
-    render(await r.json());
-  }catch(err){ out.innerHTML=`<p class="warn">Error: ${esc(err.message)}</p>`; }
-});
-function list(t,a){return a&&a.length?`<h2>${t}</h2><ul>${a.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
-function render(d){
-  const p=d.pronostico, c=d.datos;
-  const rows=c.tramos.slice(0,12).map(s=>`<tr><td>${esc(s.time.slice(5,13).replace('T',' '))}h</td><td>${s.temp_c?.mean??''}</td><td>${s.viento_kmh?.mean??''}</td><td>${s.racha_kmh?.max??''}</td><td>${s.lluvia_mm?.mean??''}</td><td>${esc(s.confianza)}</td></tr>`).join('');
-  const st=c.estaciones_cercanas.map(s=>`<li>${esc(s.id)} (${s.dist_km} km): ${s.temp_c??'–'} °C, ${s.viento_kmh??'–'} km/h</li>`).join('');
-  out.innerHTML=`<span class="tag">confianza ${esc(p.confianza)}</span> <span class="tag">${d.origen==='ia'?'IA · '+esc(d.modelo_ia):'resumen por reglas'}</span>
-  <h2>Resumen</h2><p>${esc(p.resumen)}</p>${list('Riesgos',p.riesgos)}${list('Ventanas',p.ventanas)}${list('Recomendaciones',p.recomendaciones)}
-  <details open><summary>Datos crudos (media de modelos, tramos de 3 h)</summary><table><tr><th>Hora</th><th>°C</th><th>km/h</th><th>racha</th><th>mm</th><th>conf.</th></tr>${rows}</table></details>
-  <details><summary>Estaciones APRS cercanas</summary><ul>${st||'<li>Ninguna cercana con calidad suficiente</li>'}</ul></details>
-  <p style="opacity:.6;font-size:12px">Modelos: ${esc(c.modelos.join(', '))}</p>`;
-}
-</script>
+<body data-view="places">
+<a class="skip" href="#detail">Saltar al contenido</a>
+
+<div class="app">
+  <aside class="rail" id="rail" aria-label="Lugares">
+    <header class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 28 28" width="28" height="28"><path d="M3 21 10.5 8l4.2 7.2L18 11l7 10z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="21.5" cy="6.5" r="2" fill="currentColor"/></svg>
+      </div>
+      <div class="brand-text"><strong>Meteo Guilda</strong><span>Datos abiertos · balizas APRS · IA</span></div>
+      <button class="icon-btn" id="theme" type="button" aria-label="Cambiar tema claro/oscuro">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </header>
+    <div class="rail-label">Lugares</div>
+    <ul class="places" id="places" role="list"></ul>
+    <p class="rail-note">Resumen de modelos (media de 4). Pulsa un lugar para la lectura completa.</p>
+  </aside>
+
+  <main class="detail" id="detail" tabindex="-1" aria-live="polite"></main>
+
+  <section class="mapcol" aria-label="Mapa">
+    <div id="map"></div>
+    <div class="map-ctl">
+      <button type="button" id="fit" class="chip">Ver los 6 lugares</button>
+      <span class="chip chip-ghost" id="maphint">Toca el mapa para consultar cualquier punto</span>
+    </div>
+  </section>
+
+  <nav class="tabs" aria-label="Vistas">
+    <button type="button" data-go="places"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Lugares</span></button>
+    <button type="button" data-go="forecast"><svg viewBox="0 0 24 24"><path d="M4 18h16M6 14l3-4 3 3 4-6 2 3"/></svg><span>Previsión</span></button>
+    <button type="button" data-go="map"><svg viewBox="0 0 24 24"><path d="m9 4-5 2v14l5-2 6 2 5-2V4l-5 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg><span>Mapa</span></button>
+  </nav>
+</div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

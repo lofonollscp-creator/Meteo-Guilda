@@ -1,7 +1,7 @@
 """Ingestor APRS-IS (solo lectura). Uso: python -m meteoguilda.ingest
 
 Variables: MG_APRS_HOST (rotate.aprs2.net), MG_APRS_PORT (14580),
-MG_APRS_FILTER (por defecto: weather en un círculo sobre España peninsular).
+MG_APRS_FILTER (por defecto: círculo de MG_APRS_RADIUS km alrededor de cada lugar).
 """
 from __future__ import annotations
 
@@ -12,13 +12,17 @@ import time
 
 from . import store
 from .aprs import parse_packet
+from .places import PLACES
 from .qc import range_ok
 
 log = logging.getLogger("ingest")
 HOST = os.environ.get("MG_APRS_HOST", "rotate.aprs2.net")
 PORT = int(os.environ.get("MG_APRS_PORT", "14580"))
-# t/w = paquetes meteo; r/lat/lon/km = círculo (centro de España, 700 km)
-FILTER = os.environ.get("MG_APRS_FILTER", "r/40.2/-3.7/700 t/w")
+# Los filtros APRS-IS se combinan con OR: "t/w" traería TODOS los paquetes meteo del mundo.
+# Por eso se pide solo un círculo por lugar (todo tipo de paquete) y se filtra el meteo localmente.
+RADIUS_KM = int(os.environ.get("MG_APRS_RADIUS", "60"))
+FILTER = os.environ.get("MG_APRS_FILTER") or " ".join(
+    f"r/{p.lat:.3f}/{p.lon:.3f}/{RADIUS_KM}" for p in PLACES)
 
 
 def run() -> None:

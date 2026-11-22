@@ -23,4 +23,9 @@ def test_stations_and_forecast(tmp_path, monkeypatch):
         r = c.get("/api/forecast", params={"lat": 43.05, "lon": -5.7}).json()
         assert r["origen"] == "reglas"  # sin clave de OpenRouter
         assert r["datos"]["estaciones_cercanas"][0]["id"] == "EA1ABC"
+        pl = c.get("/api/places").json()
+        assert len(pl) == 6 and pl[0]["slug"] == "garos" and pl[0]["now"]["temp_c"] == 10.5
+        g = c.get("/api/forecast", params={"place": "bresca"}).json()
+        assert g["lugar"]["name"] == "Bresca"
+        assert c.get("/api/forecast", params={"place": "nope"}).status_code == 404
         assert c.get("/").status_code == 200

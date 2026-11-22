@@ -1,0 +1,26 @@
+# Caddy: HTTPS automático (Let's Encrypt), estáticos + proxy a la API.
+# DOMAIN en .env (p. ej. meteoguilda.example). Sin dominio: DOMAIN=:80 (solo HTTP, para pruebas).
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "geolocation=(), camera=(), microphone=()"
+		X-Frame-Options DENY
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self' https://tile.openstreetmap.org; font-src 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/web
+		@static path /fonts/* /vendor/* /css/* /js/* /favicon.svg
+		header @static Cache-Control "public, max-age=604800"
+		file_server
+	}
+}

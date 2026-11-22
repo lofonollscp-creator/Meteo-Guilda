@@ -1,15 +1,34 @@
 services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web:/srv/web:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
   api:
     build: .
-    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
     env_file: .env
-    ports: ["8000:8000"]
+    environment: [MG_PREGEN=1]
     volumes: ["data:/data"]
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
   aprs:
     build: .
+    restart: unless-stopped
     command: python -m meteoguilda.ingest
     env_file: .env
     volumes: ["data:/data"]
-    restart: unless-stopped
 volumes:
   data:
+  caddy_data:
+  caddy_config:

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import statistics
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -36,9 +36,23 @@ def _confidence(var: str, spread: float, n_models: int) -> str:
     return "alta" if spread <= lo else "media" if spread <= hi else "baja"
 
 
-def summarize(data: dict, step_h: int = 3, max_steps: int = 24) -> dict:
-    """Agrega por tramos de `step_h` horas: media entre modelos, rango y confianza."""
+def _start_index(data: dict, now: datetime | None = None) -> int:
+    """Índice de la primera hora >= ahora (hora local del punto). La API devuelve desde las 00:00."""
+    times = data["hourly"]["time"]
+    now = now or datetime.now(timezone.utc)
+    local = (now + timedelta(seconds=data.get("utc_offset_seconds", 0))).replace(tzinfo=None)
+    cur = local.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M")
+    for i, t in enumerate(times):
+        if t >= cur:
+            return i
+    return 0
+
+
+def summarize(data: dict, step_h: int = 3, max_steps: int = 24, now: datetime | None = None) -> dict:
+    """Agrega por tramos de `step_h` horas desde la hora actual: media entre modelos, rango y confianza."""
     h = data["hourly"]
+    k0 = _start_index(data, now)
+    h = {k: v[k0:] for k, v in h.items()}
     times = h["time"]
     series: dict[str, list[list]] = {}
     for var in VARS + ["freezing_level_height"]:
