@@ -22,7 +22,7 @@ aviso(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
 fallo(){ printf '  \033[31m✘\033[0m %s\n' "$*" >&2; ERRORES=$((ERRORES+1)); }
 parar(){ printf '\033[31mDespliegue detenido:\033[0m %s\n' "$*" >&2; exit 1; }
 ERRORES=0
-envv() { grep -E "^$1=" .env | head -1 | cut -d= -f2-; }
+envv() { grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//'; }   # sin comentarios en línea
 PUBLICA="$(envv MG_PUBLIC_URL)"; PUBLICA="${PUBLICA:-https://radio.guildawork.com}"
 PUERTO="$(envv MG_HTTP_PORT)"; PUERTO="${PUERTO:-8088}"
 LOCAL="http://127.0.0.1:$PUERTO"
@@ -70,9 +70,10 @@ echo "== 2. Código =="
 if [ "$PULL" = 1 ]; then
   git diff --quiet && git diff --cached --quiet || parar "Hay cambios sin commitear. Hazles commit o usa --sin-pull."
   if git fetch -q origin 2>/dev/null; then
-    ARR="$(git rev-list --count HEAD..origin/main)"; ADEL="$(git rev-list --count origin/main..HEAD)"
+    UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" || parar "La rama $(git branch --show-current) no sigue a ninguna rama de GitHub"
+    ARR="$(git rev-list --count "HEAD..$UP")"; ADEL="$(git rev-list --count "$UP..HEAD")"
     if [ "$ARR" -gt 0 ] && [ "$ADEL" -gt 0 ]; then parar "Local y GitHub han divergido ($ADEL commits locales sin subir, $ARR nuevos en GitHub). Resuélvelo a mano."; fi
-    [ "$ARR" -gt 0 ] && { git merge -q --ff-only origin/main && ok "Actualizado: $ARR commits nuevos"; } || ok "Sin novedades en GitHub${ADEL:+ ($ADEL commits locales sin subir)}"
+    [ "$ARR" -gt 0 ] && { git merge -q --ff-only "$UP" && ok "Actualizado: $ARR commits nuevos"; } || ok "Sin novedades en GitHub${ADEL:+ ($ADEL commits locales sin subir)}"
   else aviso "No se pudo contactar con GitHub; se despliega lo que hay"; fi
 else aviso "--sin-pull: se despliega el directorio tal cual"; fi
 git log -1 --format='  commit %h %s' | cut -c1-110
