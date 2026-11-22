@@ -35,22 +35,48 @@ class AIForecast(BaseModel):
     confianza: str = Field(pattern="^(alta|media|baja)$")
 
 
+COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"]
+
+
+def compass(deg: float) -> str:
+    return COMPASS[round(deg / 22.5) % 16]
+
+
 def build_context(summary: dict, stations: list[dict]) -> dict:
-    """Convierte m/s -> km/h y recorta para ahorrar tokens."""
+    """Datos compactos y en unidades legibles (km/h, °C, mm) para la IA y para la web."""
     steps = []
-    for s in summary["steps"][:16]:
+    for s in summary["steps"]:
         row = {"time": s["time"], "confianza": s["confidence"]}
-        for var, key in [("temperature_2m", "temp_c"), ("precipitation", "lluvia_mm"),
-                         ("cloud_cover", "nubes_pct"), ("freezing_level_height", "isocero_m")]:
+        for var, key in [("temperature_2m", "temp_c"), ("precipitation", "lluvia_mm"), ("cloud_cover", "nubes_pct"),
+                         ("freezing_level_height", "isocero_m"), ("relative_humidity_2m", "humedad_pct"),
+                         ("surface_pressure", "presion_hpa"), ("snowfall", "nieve_cm"), ("cape", "cape_jkg")]:
             if var in s:
                 row[key] = s[var]
         for var, key in [("wind_speed_10m", "viento_kmh"), ("wind_gusts_10m", "racha_kmh")]:
             if var in s:
                 row[key] = {k: round(v * 3.6) for k, v in s[var].items()}
+        if "wind_direction_10m" in s:
+            row["viento_dir"] = s["wind_direction_10m"]["mean"]
+            row["viento_dir_txt"] = compass(row["viento_dir"])
         steps.append(row)
-    return {"ubicacion": {"lat": summary["lat"], "lon": summary["lon"],
-                          "altitud_m": summary["elevation_m"]},
-            "modelos": summary["models"], "tramos": steps, "estaciones_cercanas": stations}
+    days: dict[str, dict] = {}
+    for r in steps:
+        d = days.setdefault(r["time"][:10], {"fecha": r["time"][:10], "t": [], "lluvia_mm": 0.0, "racha": 0})
+        if "temp_c" in r:
+            d["t"] += [r["temp_c"]["min"], r["temp_c"]["max"]]
+        d["lluvia_mm"] += r.get("lluvia_mm", {}).get("mean", 0)
+        d["racha"] = max(d["racha"], r.get("racha_kmh", {}).get("max", 0))
+    dias = [{"fecha": d["fecha"], "temp_min_c": round(min(d["t"])) if d["t"] else None,
+             "temp_max_c": round(max(d["t"])) if d["t"] else None, "lluvia_mm": round(d["lluvia_mm"], 1),
+             "racha_max_kmh": d["racha"]} for d in days.values()]
+    return {"ubicacion": {"lat": summary["lat"], "lon": summary["lon"], "altitud_m": summary["elevation_m"]},
+            "modelos": summary["models"], "tramos": steps, "dias": dias, "estaciones_cercanas": stations}
+
+
+def ai_view(context: dict, n: int = 16) -> dict:
+    """Subconjunto del contexto que se envía al LLM (48 h por tramos + resumen diario)."""
+    return {**context, "tramos": [{k: v for k, v in t.items() if k not in ("viento_dir",)}
+                                  for t in context["tramos"][:n]]}
 
 
 def _collect(obj, key: str = "") -> list[tuple[str, float]]:
@@ -71,7 +97,7 @@ def _collect(obj, key: str = "") -> list[tuple[str, float]]:
 
 # unidad en el texto -> fragmentos de nombre de campo donde puede aparecer ese valor
 _UNIT_KEYS = {"c": ("temp",), "kmh": ("viento", "racha"), "mm": ("lluvia",),
-              "pct": ("nubes", "humedad"), "hpa": ("presion",), "m": ("isocero", "altitud")}
+              "pct": ("nubes", "humedad"), "hpa": ("presion",), "m": ("isocero", "altitud", "ascenso", "descenso", "ele")}
 _UNIT_NUM = re.compile(r"(-?\d+(?:[.,]\d+)?)\s*(°\s*C|ºC|º|km/h|m/s|mm|%|hPa|m)(?![\w/])")
 _KIND = {"°C": "c", "ºC": "c", "º": "c", "km/h": "kmh", "m/s": "ms", "mm": "mm",
          "%": "pct", "hPa": "hpa", "m": "m"}
@@ -130,12 +156,14 @@ def _extract_json(txt: str) -> dict:
     return json.loads(m.group(0) if m else txt)
 
 
-async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None = None
-                   ) -> tuple[AIForecast, str] | None:
+async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None = None,
+                   system: str = SYSTEM, trim: bool = True) -> tuple[AIForecast, str] | None:
     """Prueba modelos gratuitos en orden; devuelve (pronóstico, modelo) o None."""
     api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return None
+    if trim:
+        context = ai_view(context)
     user = "Datos:\n" + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
     for model in await free_models(client):
         try:
@@ -143,7 +171,7 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
                 f"{BASE}/chat/completions", timeout=90,
                 headers={"Authorization": f"Bearer {api_key}", "X-Title": "Meteo Guilda"},
                 json={"model": model, "temperature": 0.2,
-                      "messages": [{"role": "system", "content": SYSTEM},
+                      "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": user}]})
             r.raise_for_status()
             fc = AIForecast(**_extract_json(r.json()["choices"][0]["message"]["content"]))
@@ -159,7 +187,7 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
 
 def rules_forecast(context: dict) -> AIForecast:
     """Resumen determinista cuando la IA no está disponible."""
-    t = context["tramos"]
+    t = context["tramos"][:16]
     temps = [s["temp_c"]["mean"] for s in t if "temp_c" in s]
     rain = sum(s["lluvia_mm"]["mean"] for s in t if "lluvia_mm" in s)
     gust = max((s["racha_kmh"]["max"] for s in t if "racha_kmh" in s), default=0)
@@ -175,3 +203,14 @@ def rules_forecast(context: dict) -> AIForecast:
                ) if temps else "Sin datos suficientes."
     return AIForecast(resumen=resumen, riesgos=riesgos, ventanas=[], recomendaciones=[
         "Consulta los avisos oficiales antes de salir."], confianza=conf)
+
+
+ROUTE_SYSTEM = """Eres el meteorólogo de Meteo Guilda y evalúas una RUTA (a pie o en coche). Recibes la ruta \
+muestreada con la meteo prevista a la hora de paso en cada punto, el nivel de riesgo calculado por reglas \
+(0 verde, 1 ámbar, 2 rojo) y las mejores ventanas de salida. Redacta en español un briefing breve y útil.
+Reglas estrictas:
+- Usa SOLO cifras presentes en los datos; no inventes ni recalcules. Viento en km/h.
+- No cambies los niveles de riesgo calculados; explica los motivos y propone plan B (retrasar, acortar, alternativa).
+- Si es montaña, recuerda hora límite de descenso y consultar avisos oficiales.
+- Responde SOLO con un JSON: {"resumen": str, "riesgos": [str], "ventanas": [str], \
+"recomendaciones": [str], "confianza": "alta"|"media"|"baja"}"""

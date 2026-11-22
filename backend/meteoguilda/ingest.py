@@ -10,7 +10,7 @@ import os
 import socket
 import time
 
-from . import store
+from . import db, store
 from .aprs import parse_packet
 from .places import PLACES
 from .qc import range_ok
@@ -26,7 +26,7 @@ FILTER = os.environ.get("MG_APRS_FILTER") or " ".join(
 
 
 def run() -> None:
-    con = store.connect()
+    db.init_schema()
     backoff = 5
     while True:
         try:
@@ -36,19 +36,17 @@ def run() -> None:
                 f.write(f"user N0CALL pass -1 vers meteoguilda 0.1 filter {FILTER}\r\n")
                 f.flush()
                 log.info("conectado a %s:%s", HOST, PORT)
-                backoff, n, last_purge = 5, 0, time.time()
+                backoff, last_purge, last_flush, buf = 5, time.time(), time.time(), []
                 for line in f:
                     line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    o = parse_packet(line)
-                    if o and range_ok(o):
-                        store.insert(con, o)
-                        n += 1
-                        if n % 50 == 0:
-                            con.commit()
+                    o = parse_packet(line) if line and not line.startswith("#") else None
+                    if o and o.lat is not None and range_ok(o):
+                        buf.append(o)
+                    if buf and (len(buf) >= 50 or time.time() - last_flush > 10):
+                        store.insert_many(buf)
+                        buf, last_flush = [], time.time()
                     if time.time() - last_purge > 3600:
-                        store.purge(con)
+                        store.purge()
                         last_purge = time.time()
         except (OSError, TimeoutError) as e:
             log.warning("conexión perdida (%s); reintento en %ss", e, backoff)
