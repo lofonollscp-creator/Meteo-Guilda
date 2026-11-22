@@ -80,10 +80,11 @@ git log -1 --format='  commit %h %s' | cut -c1-110
 if [ "$PROBAR" = 1 ]; then
   echo "== 3. Tests (copia aislada, base desechable) =="
   T="$(mktemp -d /var/tmp/mg-deploy-test.XXXXXX)"; cp -r backend web "$T"/
-  trap 'docker rm -f mg-deploy-test-db >/dev/null 2>&1; docker network rm mg-deploy-test >/dev/null 2>&1; rm -rf "$T"' EXIT
+  # el contenedor de tests escribe como root dentro de $T: se borra con otro contenedor
+  trap 'docker rm -f mg-deploy-test-db >/dev/null 2>&1; docker network rm mg-deploy-test >/dev/null 2>&1; docker run --rm -v "$T:/w" python:3.12-slim sh -c "rm -rf /w/* /w/.[!.]*" >/dev/null 2>&1; rm -rf "$T"' EXIT
   docker network create mg-deploy-test >/dev/null && docker run -d --rm --name mg-deploy-test-db --network mg-deploy-test -e POSTGRES_USER=mg -e POSTGRES_PASSWORD=mg -e POSTGRES_DB=meteoguilda_test postgis/postgis:16-3.4 >/dev/null
   until docker exec mg-deploy-test-db pg_isready -U mg -d meteoguilda_test >/dev/null 2>&1; do sleep 2; done; sleep 4
-  docker run --rm --network mg-deploy-test -v "$T:/w" -w /w/backend -e MG_DATABASE_URL=postgresql://mg:mg@mg-deploy-test-db:5432/meteoguilda_test python:3.12-slim \
+  docker run --rm --network mg-deploy-test -v "$T:/w" -w /w/backend -e PYTHONDONTWRITEBYTECODE=1 -e MG_DATABASE_URL=postgresql://mg:mg@mg-deploy-test-db:5432/meteoguilda_test python:3.12-slim \
     sh -c "pip install -q -e '.[dev]' >/dev/null 2>&1 && python -m pytest -q" || parar "Los tests fallan: no se despliega"
   ok "Tests en verde"
 fi
