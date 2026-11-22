@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meteo Guilda</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  :root{--bg:#0f1720;--fg:#e8eef4;--card:#182430;--ac:#4cc3a0;--warn:#f0b54a}
+  *{box-sizing:border-box} body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--fg);display:flex;flex-direction:column;height:100vh}
+  header{padding:10px 16px;background:var(--card);display:flex;gap:12px;align-items:baseline}
+  header h1{font-size:18px;margin:0;color:var(--ac)} header span{opacity:.7;font-size:13px}
+  main{flex:1;display:grid;grid-template-columns:1fr 380px;min-height:0}
+  #map{min-height:300px} aside{overflow:auto;padding:14px;background:var(--card)}
+  h2{font-size:15px;margin:14px 0 6px;color:var(--ac)} ul{margin:4px 0;padding-left:18px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:10px;background:#24384a;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:12px} td,th{padding:3px 4px;text-align:right;border-bottom:1px solid #24384a} th:first-child,td:first-child{text-align:left}
+  .warn{color:var(--warn)} details{margin-top:12px}
+  @media(max-width:800px){main{grid-template-columns:1fr;grid-template-rows:50% 50%}}
+</style>
+</head>
+<body>
+<header><h1>Meteo Guilda</h1><span>Datos abiertos + balizas APRS + IA · toca el mapa</span></header>
+<main>
+  <div id="map"></div>
+  <aside id="out"><p>Toca un punto del mapa para obtener el pronóstico.</p>
+  <p class="warn">Apoyo informativo. Consulta siempre los avisos oficiales (AEMET, Salvamento Marítimo) antes de actividades de riesgo.</p></aside>
+</main>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+const out = document.getElementById('out');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const map = new maplibregl.Map({container:'map',center:[-5.5,42.9],zoom:6,style:{version:8,
+  sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap'}},
+  layers:[{id:'osm',type:'raster',source:'osm'}]}});
+let marker;
+async function loadStations(){
+  const b = map.getBounds();
+  try{
+    const r = await fetch(`/api/stations?south=${b.getSouth()}&west=${b.getWest()}&north=${b.getNorth()}&east=${b.getEast()}`);
+    const st = (await r.json()).filter(s=>s.quality==='ok');
+    const fc = {type:'FeatureCollection',features:st.map(s=>({type:'Feature',geometry:{type:'Point',coordinates:[s.lon,s.lat]},properties:s}))};
+    map.getSource('st')?.setData(fc);
+  }catch(e){}
+}
+map.on('load',()=>{
+  map.addSource('st',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+  map.addLayer({id:'st',type:'circle',source:'st',paint:{'circle-radius':5,'circle-color':'#4cc3a0','circle-stroke-width':1,'circle-stroke-color':'#fff'}});
+  map.on('click','st',e=>{const p=e.features[0].properties;
+    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(`<b>${esc(p.callsign)}</b><br>${p.temp_c??'–'} °C · viento ${p.wind_ms!=null?Math.round(p.wind_ms*3.6):'–'} km/h`).addTo(map);e.originalEvent.cancelBubble=true;});
+  loadStations(); map.on('moveend',loadStations);
+});
+map.on('click', async e=>{
+  if(map.queryRenderedFeatures(e.point,{layers:['st']}).length) return;
+  const {lat,lng}=e.lngLat; marker?.remove(); marker=new maplibregl.Marker().setLngLat([lng,lat]).addTo(map);
+  out.innerHTML='<p>Consultando modelos y generando pronóstico…</p>';
+  try{
+    const r = await fetch(`/api/forecast?lat=${lat.toFixed(4)}&lon=${lng.toFixed(4)}`);
+    if(!r.ok) throw new Error((await r.json()).detail||r.status);
+    render(await r.json());
+  }catch(err){ out.innerHTML=`<p class="warn">Error: ${esc(err.message)}</p>`; }
+});
+function list(t,a){return a&&a.length?`<h2>${t}</h2><ul>${a.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
+function render(d){
+  const p=d.pronostico, c=d.datos;
+  const rows=c.tramos.slice(0,12).map(s=>`<tr><td>${esc(s.time.slice(5,13).replace('T',' '))}h</td><td>${s.temp_c?.mean??''}</td><td>${s.viento_kmh?.mean??''}</td><td>${s.racha_kmh?.max??''}</td><td>${s.lluvia_mm?.mean??''}</td><td>${esc(s.confianza)}</td></tr>`).join('');
+  const st=c.estaciones_cercanas.map(s=>`<li>${esc(s.id)} (${s.dist_km} km): ${s.temp_c??'–'} °C, ${s.viento_kmh??'–'} km/h</li>`).join('');
+  out.innerHTML=`<span class="tag">confianza ${esc(p.confianza)}</span> <span class="tag">${d.origen==='ia'?'IA · '+esc(d.modelo_ia):'resumen por reglas'}</span>
+  <h2>Resumen</h2><p>${esc(p.resumen)}</p>${list('Riesgos',p.riesgos)}${list('Ventanas',p.ventanas)}${list('Recomendaciones',p.recomendaciones)}
+  <details open><summary>Datos crudos (media de modelos, tramos de 3 h)</summary><table><tr><th>Hora</th><th>°C</th><th>km/h</th><th>racha</th><th>mm</th><th>conf.</th></tr>${rows}</table></details>
+  <details><summary>Estaciones APRS cercanas</summary><ul>${st||'<li>Ninguna cercana con calidad suficiente</li>'}</ul></details>
+  <p style="opacity:.6;font-size:12px">Modelos: ${esc(c.modelos.join(', '))}</p>`;
+}
+</script>
+</body>
+</html>

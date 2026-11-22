@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes: ["data:/data"]
+  aprs:
+    build: .
+    command: python -m meteoguilda.ingest
+    env_file: .env
+    volumes: ["data:/data"]
+    restart: unless-stopped
+volumes:
+  data:
