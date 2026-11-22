@@ -1,4 +1,16 @@
 services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meteoguilda
+      POSTGRES_USER: mg
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mg -d meteoguilda"]
+      interval: 10s
+      retries: 10
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -16,8 +28,11 @@ services:
     restart: unless-stopped
     command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*'
     env_file: .env
-    environment: [MG_PREGEN=1]
-    volumes: ["data:/data"]
+    environment:
+      MG_PREGEN: "1"
+      MG_DATABASE_URL: postgresql://mg:${POSTGRES_PASSWORD}@db:5432/meteoguilda
+    depends_on:
+      db: {condition: service_healthy}
     expose: ["8000"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -27,8 +42,20 @@ services:
     restart: unless-stopped
     command: python -m meteoguilda.ingest
     env_file: .env
-    volumes: ["data:/data"]
+    environment:
+      MG_DATABASE_URL: postgresql://mg:${POSTGRES_PASSWORD}@db:5432/meteoguilda
+    depends_on:
+      db: {condition: service_healthy}
+  mcp:
+    build: .
+    restart: unless-stopped
+    command: python -m meteoguilda.mcp_server --http
+    env_file: .env
+    environment:
+      MG_API: http://api:8000
+    expose: ["8001"]
+    depends_on: [api]
 volumes:
-  data:
+  pgdata:
   caddy_data:
   caddy_config:

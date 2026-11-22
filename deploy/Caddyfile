@@ -17,6 +17,11 @@
 		reverse_proxy api:8000
 	}
 
+	# Servidor MCP (exige Authorization: Bearer $MG_MCP_TOKEN; lo valida el propio servicio)
+	handle /mcp* {
+		reverse_proxy mcp:8001
+	}
+
 	handle {
 		root * /srv/web
 		@static path /fonts/* /vendor/* /css/* /js/* /favicon.svg

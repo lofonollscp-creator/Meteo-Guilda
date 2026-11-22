@@ -8,7 +8,7 @@ ecosistema. Con 6 lugares la carga es mínima. Rust se reserva para un component
 ## Base de datos: PostgreSQL + extensión PostGIS
 PostGIS no es una alternativa a PostgreSQL: es una extensión del mismo servidor. La pregunta real es
 "¿PostgreSQL a secas o con PostGIS?". Decisión: **PostgreSQL con PostGIS** (imagen `postgis/postgis`),
-migrando desde SQLite cuando empiece el planificador de rutas.
+**ya migrado** (v0.2): observaciones APRS con índice GiST, repetidores con polígonos de cobertura y consultas de balizas/repetidores junto a una ruta.
 
 | | SQLite (hoy) | PostgreSQL | PostgreSQL + PostGIS |
 |---|---|---|---|
@@ -22,3 +22,15 @@ migrando desde SQLite cuando empiece el planificador de rutas.
 Razón: el valor diferencial del proyecto es cruzar la previsión con rutas y zonas (monte, carretera, mar);
 eso son consultas espaciales y PostGIS las resuelve en SQL con índices. El coste frente a PostgreSQL a secas es
 prácticamente nulo.
+
+## Favoritos y cuaderno QSL: en el navegador
+De momento no hay cuentas: los lugares guardados/anclados y el cuaderno QSL se guardan en `localStorage` de cada dispositivo
+(con exportación JSON y ADIF). Cuentas con sincronización quedan para una fase posterior.
+
+## MCP como cliente fino de la API
+El servidor MCP llama a la API REST (mismas cachés y límites) en vez de reimplementar la lógica; se expone por HTTP con
+token Bearer y por stdio para uso local.
+
+## Riesgo de rutas: reglas, no IA
+El nivel de riesgo (verde/ámbar/rojo) y las mejores ventanas se calculan con reglas explícitas y auditables
+(`routing.py`); la IA solo redacta el briefing y no puede cambiar los niveles.
