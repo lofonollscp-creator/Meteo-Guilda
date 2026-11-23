@@ -153,6 +153,46 @@ def _get_client(client_id: str | None) -> dict | None:
                            [(client_id or "")[:100]]).fetchone()
 
 
+async def hydra_profile(http: httpx.AsyncClient, code: str, verifier: str, redirect_uri: str) -> dict:
+    """Canjea el código de Hydra (PKCE) y devuelve el perfil OIDC (sub, email). Lanza ValueError si algo falla."""
+    tr = await http.post(issuer() + "oauth2/token", data={
+        "grant_type": "authorization_code", "client_id": oidc_client_id(), "code": code,
+        "redirect_uri": redirect_uri, "code_verifier": verifier})
+    tokens = tr.json()
+    if tr.status_code != 200 or not tokens.get("access_token"):
+        raise ValueError("token")
+    ur = await http.get(issuer() + "userinfo", headers={"authorization": "Bearer " + tokens["access_token"]})
+    profile = ur.json()
+    if ur.status_code != 200 or not profile.get("sub"):
+        raise ValueError("userinfo")
+    return profile
+
+
+def hydra_url(state: str, verifier: str, redirect_uri: str) -> str:
+    return issuer() + "oauth2/auth?" + urlencode({
+        "client_id": oidc_client_id(), "response_type": "code", "scope": "openid email profile", "state": state,
+        "redirect_uri": redirect_uri, "code_challenge_method": "S256",
+        "code_challenge": base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()})
+
+
+def consent_page(tx: dict, client_name: str) -> HTMLResponse:
+    """Pantalla de consentimiento para la transacción `tx` (ya con sub y email); la deja pendiente y fija la cookie."""
+    cid = rnd(24)
+    _pending[cid] = {**tx, "step": "consent", "expires": time.time() + TX_SECONDS}
+    email = tx["email"]
+    body = (f"<h1>¿Dar acceso a «{html.escape(client_name)}»?</h1>"
+            f"<p>Esta aplicación quiere usar Meteo Guilda · Radio Guilda como <b>{html.escape(email or 'tu cuenta')}</b>. Podrá:</p>"
+            "<ul><li>consultar previsiones, balizas, repetidores, satélites y propagación</li>"
+            "<li>planificar rutas con la meteo a la hora de paso</li>"
+            "<li>usar tu cuaderno de contactos si le facilitas la clave del cuaderno</li></ul>"
+            "<p>Puedes retirarle el acceso cuando quieras.</p>"
+            f'<form method="post" action="/api/oauth/consent"><input type="hidden" name="tx" value="{cid}">'
+            '<button class="ok" name="decision" value="allow">Permitir</button><button name="decision" value="deny">Cancelar</button></form>')
+    r = _page(200, "Autorizar acceso a Radio Guilda", body)
+    r.set_cookie(COOKIE, cid, max_age=TX_SECONDS, path="/api/oauth", httponly=True, secure=True, samesite="lax")
+    return r
+
+
 # ---------- metadatos (se sirven también en /.well-known/…) ----------
 @router.get("/.well-known/oauth-authorization-server")
 @router.get("/api/oauth/metadata")
@@ -236,15 +276,16 @@ def authorize(request: Request):
     challenge = q.get("code_challenge") or ""
     if q.get("code_challenge_method") != "S256" or not (43 <= len(challenge) <= 128):
         return _back(redirect_uri, error="invalid_request", error_description="Se exige PKCE con S256.", state=state, iss=iss)
+    from . import auth  # import tardío: auth importa este módulo
+    user = auth.session_user(request)
+    base = {"client_id": client["client_id"], "redirect_uri": redirect_uri, "state": state, "challenge": challenge}
+    if user and (not allowed_emails() or user["email"] in allowed_emails()):
+        # ya hay sesión en la web: no hace falta volver a Hydra
+        return consent_page({**base, "sub": user["sub"], "email": user["email"]}, client["name"])
     tx = rnd(24)
     verifier = rnd(48)
-    _pending[tx] = {"step": "login", "client_id": client["client_id"], "redirect_uri": redirect_uri, "state": state,
-                    "challenge": challenge, "verifier": verifier, "expires": time.time() + TX_SECONDS}
-    hydra = issuer() + "oauth2/auth?" + urlencode({
-        "client_id": oidc_client_id(), "response_type": "code", "scope": "openid email profile", "state": tx,
-        "redirect_uri": origin() + "/api/oauth/callback", "code_challenge_method": "S256",
-        "code_challenge": base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()})
-    r = RedirectResponse(hydra, status_code=302, headers={"cache-control": "no-store"})
+    _pending[tx] = {**base, "step": "login", "verifier": verifier, "expires": time.time() + TX_SECONDS}
+    r = RedirectResponse(hydra_url(tx, verifier, origin() + "/api/oauth/callback"), status_code=302, headers={"cache-control": "no-store"})
     r.set_cookie(COOKIE, tx, max_age=TX_SECONDS, path="/api/oauth", httponly=True, secure=True, samesite="lax")
     return r
 
@@ -257,18 +298,8 @@ async def callback(request: Request):
     tx = _pending.pop(state, None)
     if not tx or tx["step"] != "login" or not hmac.compare_digest(request.cookies.get(COOKIE, ""), state) or not q.get("code"):
         return _fail("La solicitud ha caducado o no es tuya. Vuelve a empezar desde la aplicación.")
-    http: httpx.AsyncClient = request.app.state.http
     try:
-        tr = await http.post(issuer() + "oauth2/token", data={
-            "grant_type": "authorization_code", "client_id": oidc_client_id(), "code": q["code"],
-            "redirect_uri": origin() + "/api/oauth/callback", "code_verifier": tx["verifier"]})
-        tokens = tr.json()
-        if tr.status_code != 200 or not tokens.get("access_token"):
-            raise ValueError("token")
-        ur = await http.get(issuer() + "userinfo", headers={"authorization": "Bearer " + tokens["access_token"]})
-        profile = ur.json()
-        if ur.status_code != 200 or not profile.get("sub"):
-            raise ValueError("userinfo")
+        profile = await hydra_profile(request.app.state.http, q["code"], tx["verifier"], origin() + "/api/oauth/callback")
     except Exception as e:  # noqa: BLE001
         log.warning("oauth callback: %s", e)
         return _fail("No se ha podido comprobar tu inicio de sesión. Vuelve a intentarlo.")
@@ -279,19 +310,7 @@ async def callback(request: Request):
         return _back(tx["redirect_uri"], error="access_denied", error_description="Tu cuenta no tiene acceso.", state=tx["state"], iss=origin())
     with db.pool().connection() as con:
         client = con.execute("SELECT name FROM oauth_clients WHERE client_id=%s", [tx["client_id"]]).fetchone()
-    cid = rnd(24)
-    _pending[cid] = {**tx, "step": "consent", "sub": profile["sub"], "email": email, "expires": time.time() + TX_SECONDS}
-    body = (f"<h1>¿Dar acceso a «{html.escape(client['name'] if client else 'una aplicación')}»?</h1>"
-            f"<p>Esta aplicación quiere usar Meteo Guilda · Radio Guilda como <b>{html.escape(email or 'tu cuenta')}</b>. Podrá:</p>"
-            "<ul><li>consultar previsiones, balizas, repetidores, satélites y propagación</li>"
-            "<li>planificar rutas con la meteo a la hora de paso</li>"
-            "<li>usar tu cuaderno de contactos si le facilitas la clave del cuaderno</li></ul>"
-            "<p>Puedes retirarle el acceso cuando quieras.</p>"
-            f'<form method="post" action="/api/oauth/consent"><input type="hidden" name="tx" value="{cid}">'
-            '<button class="ok" name="decision" value="allow">Permitir</button><button name="decision" value="deny">Cancelar</button></form>')
-    r = _page(200, "Autorizar acceso a Radio Guilda", body)
-    r.set_cookie(COOKIE, cid, max_age=TX_SECONDS, path="/api/oauth", httponly=True, secure=True, samesite="lax")
-    return r
+    return consent_page({**tx, "sub": profile["sub"], "email": email}, client["name"] if client else "una aplicación")
 
 
 @router.post("/api/oauth/consent")

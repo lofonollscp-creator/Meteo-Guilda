@@ -154,7 +154,7 @@ function renderSync(msg = "") {
     : `<div class="row"><button class="btn" id="kmk" type="button">Activar sincronización</button></div>
       <div class="field" style="margin-top:16px"><label for="kin">¿Ya tienes una clave?</label><div class="row"><input id="kin" type="password" placeholder="mg_…" style="flex:1"><button class="btn ghost sm" id="kuse" type="button">Usar</button></div></div>`}
     <p class="empty" id="kmsg">${esc(typeof msg === "string" ? msg : "")}</p>
-    <form method="dialog" style="margin-top:12px"><button class="btn ghost sm">Cerrar</button></form>`);
+    <form method="dialog" style="margin-top:12px"><button class="btn ghost sm">Cerrar</button> <a class="btn ghost sm" href="/api/auth/logout">Cerrar sesión de Guilda</a></form>`);
   const m = (t) => ($("#kmsg").textContent = t);
   $("#kmk")?.addEventListener("click", async () => { try { m("Creando…"); await createProfile(); renderSync("Sincronización activada. Guarda tu clave."); } catch (e) { m(e.message); } });
   $("#kuse")?.addEventListener("click", async () => { const v = $("#kin").value.trim(); setKey(v); if (await pullSettings()) { renderSync("Clave aceptada. Recarga para ver tus datos."); } else { setKey(null); m("Clave no válida"); } });

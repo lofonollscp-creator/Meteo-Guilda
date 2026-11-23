@@ -88,3 +88,13 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   revoked_at         TIMESTAMPTZ
 );
+
+-- Sesiones de la web (inicio de sesión con la cuenta de Guilda Work; ver auth.py)
+CREATE TABLE IF NOT EXISTS web_sessions (
+  token_hash TEXT PRIMARY KEY,
+  sub        TEXT NOT NULL,
+  email      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS web_sessions_exp ON web_sessions (expires_at);

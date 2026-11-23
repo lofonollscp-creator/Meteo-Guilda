@@ -13,6 +13,7 @@ export const api = async (url, opts) => {
   const r = await fetch(url, opts);
   const off = document.getElementById("offline");
   if (off) off.hidden = !r.headers.get("x-from-cache");
+  if (r.status === 401 && r.headers.get("x-auth") === "login") { location.href = "/api/auth/login?return_to=" + encodeURIComponent(location.pathname + location.search); return new Promise(() => {}); }
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(typeof e.detail === "string" ? e.detail : `Error ${r.status}`); }
   return r.json();
 };

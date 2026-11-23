@@ -61,8 +61,9 @@ def cliente(pg, monkeypatch):
     monkeypatch.setenv("MG_ADMIN_TOKEN", "admin-secreto")
     monkeypatch.delenv("MG_OAUTH_ALLOWED_EMAILS", raising=False)
     with db.pool().connection() as con:
-        con.execute("TRUNCATE oauth_tokens, oauth_clients RESTART IDENTITY CASCADE")
-    oauth._pending.clear(); oauth._codes.clear(); oauth._registrations.clear()
+        con.execute("TRUNCATE oauth_tokens, oauth_clients, web_sessions RESTART IDENTITY CASCADE")
+    from meteoguilda import auth
+    auth._cache.clear(); oauth._pending.clear(); oauth._codes.clear(); oauth._registrations.clear()
 
     def hydra(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/oauth2/token"):
@@ -155,3 +156,73 @@ def test_rechazos(cliente, monkeypatch):
     state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
     r = c.get("/api/oauth/callback", params={"code": "c", "state": state}, follow_redirects=False)
     assert r.status_code == 302 and "error=access_denied" in r.headers["location"]
+
+
+# ---------- puerta de acceso de la web (auth.py) ----------
+def test_safe_return():
+    from meteoguilda import auth
+    assert auth.safe_return("/radio?x=1") == "/radio?x=1"
+    for malo in (None, "", "https://evil.test/", "//evil.test", "/\\evil", "javascript:alert(1)", "/a\nb"):
+        assert auth.safe_return(malo) == "/"
+
+
+def _entrar(c, volver="/radio"):
+    r = c.get("/api/auth/login", params={"return_to": volver}, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"].startswith("https://hydra.test/oauth2/auth?")
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["redirect_uri"] == ["https://radio.test/api/auth/callback"]
+    return c.get("/api/auth/callback", params={"code": "c", "state": q["state"][0]}, follow_redirects=False)
+
+
+def test_puerta_de_acceso(cliente):
+    c = cliente
+    nav = {"sec-fetch-mode": "navigate", "accept": "text/html", "x-forwarded-uri": "/mapa?z=3"}
+    r = c.get("/api/auth/check", headers=nav, follow_redirects=False)       # navegador sin sesión → login
+    assert r.status_code == 302 and r.headers["location"] == "/api/auth/login?return_to=%2Fmapa%3Fz%3D3"
+    r = c.get("/api/auth/check", headers={"accept": "*/*", "sec-fetch-mode": "cors"})   # fetch de la app → 401 marcado
+    assert r.status_code == 401 and r.headers["x-auth"] == "login"
+    assert c.get("/api/auth/me").status_code == 401
+    r = _entrar(c)                                                            # login correcto → cookie de sesión y vuelta a la página
+    assert r.status_code == 302 and r.headers["location"] == "/radio"
+    assert "mg_session=" in r.headers["set-cookie"] and "HttpOnly" in r.headers["set-cookie"] and "Secure" in r.headers["set-cookie"]
+    ok = c.get("/api/auth/check", headers=nav)
+    assert ok.status_code == 200 and ok.headers["x-user-email"] == "ana@guilda.test"
+    assert c.get("/api/auth/me").json() == {"email": "ana@guilda.test"}
+    c.get("/api/auth/logout")                                                 # cerrar sesión
+    assert c.get("/api/auth/check", headers=nav, follow_redirects=False).status_code == 302
+    assert c.get("/api/auth/me").status_code == 401
+
+
+def test_la_puerta_respeta_la_lista_de_correos_y_la_caducidad(cliente, monkeypatch):
+    from meteoguilda import db
+    c = cliente
+    monkeypatch.setenv("MG_OAUTH_ALLOWED_EMAILS", "otra@guilda.test")
+    r = _entrar(c)
+    assert r.status_code == 403 and "mg_session" not in r.headers.get("set-cookie", "")
+    monkeypatch.delenv("MG_OAUTH_ALLOWED_EMAILS")
+    _entrar(c)
+    assert c.get("/api/auth/me").status_code == 200
+    from meteoguilda import auth
+    auth._cache.clear()
+    with db.pool().connection() as con:
+        con.execute("UPDATE web_sessions SET expires_at = now() - interval '1 minute'")
+    assert c.get("/api/auth/me").status_code == 401
+
+
+def test_callback_de_login_exige_su_cookie_y_un_solo_uso(cliente):
+    c = cliente
+    r = c.get("/api/auth/login", follow_redirects=False)
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    c.cookies.clear()
+    assert c.get("/api/auth/callback", params={"code": "c", "state": state}).status_code == 400   # sin cookie
+    assert c.get("/api/auth/callback", params={"code": "c", "state": state}).status_code == 400   # y la transacción ya se quemó
+
+
+def test_el_mcp_reutiliza_la_sesion_web_sin_volver_a_hydra(cliente):
+    c = cliente
+    cli = _registrar(c)
+    _entrar(c)
+    r = c.get("/api/oauth/authorize", params={"client_id": cli["client_id"], "redirect_uri": "https://claude.ai/cb", "response_type": "code",
+                                              "code_challenge": _challenge("v" * 60), "code_challenge_method": "S256", "state": "s"},
+              follow_redirects=False)
+    assert r.status_code == 200 and "ana@guilda.test" in r.text and 'name="tx"' in r.text   # consentimiento directo, sin pasar por Hydra
