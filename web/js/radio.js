@@ -7,6 +7,7 @@ import * as qsl from "./qsl.js";
 let ctx, sub = "resumen", places = [], placesP = Promise.resolve([]), loc = null, req = 0;
 const MENU = [
   ["resumen", "Resumen", "Tu radio de un vistazo", "home"],
+  ["ventanas", "Ventanas", "Cuándo operar: HF, tropo, satélites y tiempo", "clock"],
   ["repetidores", "Repetidores", "FM, DMR, D-STAR y C4FM con cobertura", "tower"],
   ["propagacion", "Propagación", "Tropo, HF y línea gris", "wave"],
   ["satelites", "Satélites", "Pasos de la ISS y satélites de aficionados", "satellite"],
@@ -60,7 +61,7 @@ export function show(parts) {
   req++;
   $$("#menu [data-sub]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sub === sub)));
   ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; stopSat(); ctx.pane(bare && matchMedia("(max-width:760px)").matches ? "list" : "detail");
-  ({ resumen, repetidores: () => repetidores(parts[1]), propagacion, satelites, portatil, qsl: () => qsl.view(ctx, { getQth, clearLayers, onMap }), herramientas })[sub]();
+  ({ resumen, ventanas, repetidores: () => repetidores(parts[1]), propagacion, satelites, portatil, qsl: () => qsl.view(ctx, { getQth, clearLayers, onMap }), herramientas })[sub]();
 }
 const head = (t, p, extra = "") => `<div class="d-head"><div><h1>${t}</h1><p>${p}</p></div>${extra}</div>`;
 const where = () => `<div class="row" style="margin:16px 0"><select id="where" style="width:auto;max-width:100%"></select><span class="chip chip-ghost">o toca el mapa</span></div>`;
@@ -104,16 +105,24 @@ async function resumen() {
 }
 
 /* ---------- Repetidores ---------- */
-let rep = { band: "", mode: "", q: "", rows: [], sel: null, cov: true, ctl: null };
+let rep = { band: "", mode: "", q: "", km: 0, reach: false, reachIds: new Set(), rows: [], sel: null, cov: true, ctl: null };
 async function repetidores(selId) {
   const my = req;
   ctx.colb.innerHTML = `${head("Repetidores", "FM, DMR, D-STAR y C4FM de BrandMeister y listados abiertos")}
     <div class="row" style="margin:18px 0"><input id="rq" type="search" placeholder="Indicativo o ciudad…" style="max-width:220px" value="${esc(rep.q)}">
       <select id="rb" style="width:auto"><option value="">Todas las bandas</option><option>10m</option><option>6m</option><option>2m</option><option>70cm</option><option>23cm</option></select>
       <span class="seg" id="rm"><button type="button" data-m="" aria-pressed="true">Todos</button>${Object.keys(MODE_COL).map((m) => `<button type="button" data-m="${m}" aria-pressed="false">${m}</button>`).join("")}</span></div>
+    <div class="row" style="margin:-6px 0 14px"><select id="rd" style="width:auto" aria-label="Distancia máxima">${[[0, "Cualquier distancia"], [25, "Hasta 25 km"], [50, "Hasta 50 km"], [100, "Hasta 100 km"], [200, "Hasta 200 km"]].map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select>
+      <button class="chip" id="rreach" type="button" aria-pressed="false" title="Solo repetidores cuya cobertura estimada (con el relieve) llega a tu QTH">Llegan a mi QTH</button><span class="empty" id="rreachmsg" style="font-size:12.5px"></span></div>
     <div class="legend" id="rleg" style="margin:0 0 12px">${Object.entries(MODE_COL).map(([m, c]) => `<span><i style="border-color:${c}"></i>${m}</span>`).join("")}<span id="rstat"></span></div>
     <div id="rdetail"></div><div id="rlist"><div class="skeleton" style="height:90px"></div></div>
     <p class="empty" style="margin-top:18px">Datos de <a href="https://brandmeister.network" target="_blank" rel="noopener">BrandMeister</a> y <a href="https://hearham.com" target="_blank" rel="noopener">HearHam</a>. Pueden contener errores o estar desactualizados: confirma en la web del repetidor o de tu asociación. La cobertura es una <b>estimación por línea de vista</b>, no una garantía.</p>`;
+  $("#rd").value = String(rep.km); $("#rd").addEventListener("change", (e) => { rep.km = +e.target.value; paintReps(); });
+  $("#rreach").setAttribute("aria-pressed", String(rep.reach));
+  $("#rreach").addEventListener("click", async () => {
+    if (getQth()?.lat == null) { ctx.toast("Indica primero tu locator (QTH)"); return; }
+    rep.reach = !rep.reach; $("#rreach").setAttribute("aria-pressed", String(rep.reach)); await loadReach(); paintReps();
+  });
   $("#rb").value = rep.band; $$("#rm button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.m === rep.mode)));
   const reload = debounce(() => loadReps(), 250);
   $("#rq").addEventListener("input", (e) => { rep.q = e.target.value; reload(); });
@@ -138,6 +147,17 @@ async function repetidores(selId) {
   m.easeTo({ center: [at.lon, at.lat], zoom: Math.max(m.getZoom(), 7), duration: 0 });
   await loadReps(); if (selId) pick(+selId, true);
 }
+async function loadReach() {
+  const msg = $("#rreachmsg"); if (msg) msg.textContent = "";
+  if (!rep.reach) { rep.reachIds = new Set(); return; }
+  const at = here();
+  try {
+    const p = new URLSearchParams({ lat: at.lat, lon: at.lon, km: "200", limit: "300" }); if (rep.band) p.set("band", rep.band); if (rep.mode) p.set("mode", rep.mode);
+    const near = await api(`/api/repeaters/near?${p}`);
+    rep.reachIds = new Set(near.filter((r) => r.covers_point).map((r) => r.id));
+    if (msg) msg.textContent = `${rep.reachIds.size} con cobertura calculada que llega a ${at.name}. Los que aún no la tienen no aparecen: ábrelos y pulsa «Calcular cobertura».`;
+  } catch (e) { if (msg) msg.textContent = e.message; }
+}
 async function loadReps(fromMove) {
   const m = ctx.map; if (!m || !m.getSource("reps")) return;
   const b = m.getBounds(), p = new URLSearchParams({ bbox: `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`, limit: "2500" });
@@ -150,9 +170,10 @@ async function loadReps(fromMove) {
 }
 function paintReps() {
   const box = $("#rlist"); if (!box) return;
-  const at = here(), list = rep.rows.map((r) => ({ ...r, d: distKm(at, r) })).sort((a, b) => a.d - b.d).slice(0, 60);
+  const at = here(), all = rep.rows.map((r) => ({ ...r, d: distKm(at, r) })), list = all.filter((r) => (!rep.km || r.d <= rep.km) && (!rep.reach || rep.reachIds.has(r.id))).sort((a, b) => a.d - b.d).slice(0, 60);
+  if (all.length && !list.length) { box.innerHTML = `<p class="empty">Ninguno cumple ${rep.reach ? "«Llegan a mi QTH»" : ""}${rep.reach && rep.km ? " y " : ""}${rep.km ? `estar a menos de ${rep.km} km de ${esc(at.name)}` : ""}. Quita un filtro o aleja el mapa.</p>`; return; }
   if (!rep.rows.length) { box.innerHTML = '<p class="empty">No hay repetidores en esta zona con esos filtros. Prueba a alejar el mapa o a quitar filtros. Si el catálogo está vacío, el servidor aún no lo ha sincronizado.</p>'; return; }
-  box.innerHTML = `<p class="empty" style="margin-bottom:4px">${nf.format(rep.rows.length)} en el área visible; los 60 más cercanos a ${esc(at.name)}.</p>` + list.map((r) => `<button class="rep" data-id="${r.id}" type="button"><span class="f">${fmtF(r.freq_mhz)} MHz</span>
+  box.innerHTML = `<p class="empty" style="margin-bottom:4px">${nf.format(list.length)}${list.length === 60 ? "+" : ""} de ${nf.format(rep.rows.length)} en el área visible, de más cerca a más lejos de ${esc(at.name)}.</p>` + list.map((r) => `<button class="rep" data-id="${r.id}" type="button"><span class="f">${fmtF(r.freq_mhz)} MHz</span>
     <span class="meta"><span class="tag" style="background:${MODE_COL[r.mode] || "#888"}22;color:${MODE_COL[r.mode] || "inherit"}">${esc(r.mode)}</span>${nf.format(r.d)} km ${compass(bearing(at, r))}</span>
     <span class="meta"><b>${esc(r.callsign || "")}</b> ${esc(r.city || r.name)}${r.tone_hz ? ` · CTCSS ${r.tone_hz} Hz` : ""}${r.color_code != null ? ` · CC${r.color_code}` : ""}${r.shift_khz ? ` · ${r.shift_khz > 0 ? "+" : "−"}${Math.abs(r.shift_khz) >= 1000 ? Math.abs(r.shift_khz) / 1000 + " MHz" : Math.abs(r.shift_khz) + " kHz"}` : ""}</span></button>`).join("");
   box.onclick = (e) => { const b = e.target.closest("[data-id]"); if (b) location.hash = `#/radio/repetidores/${b.dataset.id}`; };
@@ -323,6 +344,51 @@ async function portatil() {
       { label: "Lluvia", val: (i) => H[i].lluvia_mm, color: (v) => (v >= 3 ? "#7e9fd0" : v >= 0.5 ? "#c4d4ec" : "#eef1f4"), text: (v) => (v < 0.05 ? "" : nf1.format(v)) },
     ], ax);
   } catch (e) { $("#pt").innerHTML = `<div class="err"><strong>No se pudo calcular</strong><p class="empty">${esc(e.message)}</p></div>`; }
+}
+
+/* ---------- Ventanas: cuándo operar ---------- */
+const NOTA_COL = (v) => (v >= 70 ? "#2c8a5a" : v >= 40 ? "#9bc27a" : v >= 20 ? "#e8e0b0" : "#eceeea");
+const NOTA_INK = (v) => (v >= 70 ? "#fff" : "#14191f");
+async function ventanas() {
+  const my = req, modo = LS.get("mg-radio-modo", "fijo");
+  ctx.colb.innerHTML = `${head("Ventanas de operación", "Las próximas 48 h en tramos de 3 h: HF, tropo VHF/UHF, satélites y, si sales, el tiempo para tu antena")}${where()}
+    <div class="row" style="margin:-4px 0 16px"><span class="lbl">Modo</span><span class="seg" id="vmodo">${[["fijo", "QTH fijo"], ["portatil", "POTA · SOTA · móvil"]].map(([v, t]) => `<button type="button" data-v="${v}" aria-pressed="${modo === v}">${t}</button>`).join("")}</span></div>
+    <div id="vv"><div class="skeleton" style="height:220px"></div></div>`;
+  await fillWhere(() => ventanas());
+  $("#vmodo").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { LS.set("mg-radio-modo", b.dataset.v); pushSettings(); ventanas(); } });
+  const at = here(); ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 8);
+  try {
+    const d = await api(`/api/radio/ventanas?lat=${at.lat}&lon=${at.lon}&modo=${modo}`);
+    if (my !== req) return;
+    const T = d.tramos, hm = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }), dia = (iso) => new Date(iso).toLocaleDateString("es", { weekday: "short", day: "numeric" }).replace(".", "");
+    const cuando = (iso) => `${dia(iso)} ${hm(iso)}–${hm(new Date(+new Date(iso) + 3 * 3600e3))}`;
+    const nombre = { hf: "HF", tropo: "Tropo VHF/UHF", sat: "Satélites", general: "Mejor momento" };
+    const ok = (t) => modo !== "portatil" || t.campo.nivel < 2;                       // en portátil, un tramo con tiempo rojo no se recomienda
+    const mejorDe = (capa) => T.filter(ok).reduce((m, t) => (t[capa].nota > (m?.[capa].nota ?? 39) ? t : m), null);
+    const mejores = [["hf", mejorDe("hf")], ["tropo", mejorDe("tropo")], ["sat", mejorDe("sat")]].filter(([, t]) => t);
+    const capaTxt = { hf: (t) => `${t.hf.bandas.slice(0, 3).join(", ")} <small>${esc(t.hf.motivo)}</small>`, tropo: (t) => `${esc(t.tropo.cat)} <small>${esc(t.tropo.motivo)}</small>`,
+      sat: (t) => `${esc(t.sat.pasos[0]?.satelite || "")} a ${t.sat.pasos[0]?.max_el}° <small>paso a las ${hm(t.sat.pasos[0]?.aos)}</small>` };
+    const aviso = modo === "portatil" ? T.filter((t) => t.campo.nivel === 2) : [];
+    const fuentesOff = Object.entries({ tropo: "tropo", solar: "estado solar (Kp/SFI)", satelites: "satélites" }).filter(([k]) => !d.fuentes[k]).map(([, v]) => v);
+    $("#vv").innerHTML = `${aviso.length ? `<div class="warn-note" style="margin-top:0">${icon("bolt", 18)}<span><b>Tiempo adverso para operar fuera</b>: ${[...new Set(aviso.flatMap((t) => t.campo.motivos))].slice(0, 3).map(esc).join(" · ")}. Esos tramos salen en cero.</span></div>` : ""}
+      <section class="sec"><div class="label">Mejores momentos <em>${modo === "portatil" ? "contando el tiempo para la antena" : "para tu QTH"}</em></div>
+        ${mejores.length ? `<div class="windows">${mejores.map(([c, t]) => `<div class="win"><span class="pill lv0"><i></i>${nombre[c]} · ${t[c].nota}/100</span><b>${esc(cuando(t.desde))}</b><span>${capaTxt[c](t)}</span></div>`).join("")}</div>` : '<p class="empty">Ningún tramo destaca en las próximas 48 h.</p>'}</section>
+      <section class="sec"><div class="label">Próximas 48 h <em>más oscuro = mejor</em></div><div class="strip" id="vstrip"></div>
+        <div class="legend" style="margin-top:8px"><span>Toca un tramo para ver las notas</span></div></section>
+      <section class="sec"><div class="label">Qué mirar en cada capa</div><ul class="chk">
+        <li><b>HF</b>: ${d.solar.kp != null ? `Kp ${d.solar.kp}` : "Kp ?"} · SFI ${d.solar.sfi ?? "?"}. Con luz suben las bandas altas, de noche las bajas, y la línea gris (±1 h del orto/ocaso) es la mejor hora para DX.</li>
+        <li><b>Tropo</b>: nota alta = gradiente de refractividad favorable (alcances de cientos de km en 144/432 MHz). Los modelos no ven los conductos de capa fina.</li>
+        <li><b>Satélites</b>: pasos de ISS y satélites de aficionados de 15° o más; pesa la elevación máxima.</li>
+        ${modo === "portatil" ? "<li><b>Campo</b>: rachas, lluvia y tormenta bajan o anulan la nota; en SOTA/POTA no montes mástil con tormenta cerca.</li>" : ""}</ul></section>
+      ${fuentesOff.length ? `<p class="empty">Sin datos de: ${fuentesOff.join(", ")}. Esas capas salen sin nota.</p>` : ""}<p class="empty">${esc(d.aviso)}</p>`;
+    const items = T.map((t) => ({ time: t.desde })), ax = (it) => it.map((x, i) => ({ i, label: hh(x.time.slice(0, 16)), major: false })).filter((a) => a.i % 2 === 0);
+    const rows = [{ label: "Total", val: (i) => T[i].total, color: NOTA_COL, ink: NOTA_INK, text: (v) => v },
+      { label: "HF", val: (i) => T[i].hf.nota, color: NOTA_COL, ink: NOTA_INK, text: (v) => v },
+      { label: "Tropo", val: (i) => T[i].tropo.nota, color: NOTA_COL, ink: NOTA_INK, text: (v) => v },
+      { label: "Satélite", val: (i) => T[i].sat.nota, color: NOTA_COL, ink: NOTA_INK, text: (v) => (v ? v : "") }];
+    if (modo === "portatil") rows.push({ label: "Campo", val: (i) => T[i].campo.nivel, color: (v) => ["#2c8a5a", "#e2a548", "#c0392b"][v], ink: () => "#fff", text: (v) => ["ok", "!", "×"][v] });
+    renderStrip($("#vstrip"), items, rows, ax);
+  } catch (e) { $("#vv").innerHTML = `<div class="err"><strong>No se pudo calcular</strong><p class="empty">${esc(e.message)}</p></div>`; }
 }
 
 /* ---------- Herramientas ---------- */

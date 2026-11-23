@@ -35,6 +35,8 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Propagación HF (Kp, flujo solar) | `GET /api/solar` | `get_hf_conditions` |
 | Satélites: lista y pasos | `GET /api/satellites`, `/api/satellites/passes` | `list_satellites`, `satellite_passes` |
 | Operación en portátil | `GET /api/portable` | `portable_operation_window` |
+| Avisos oficiales de un punto (AEMET) | `GET /api/avisos` | `get_official_warnings` |
+| Ventanas de operación (HF, tropo, satélites, campo) | `GET /api/radio/ventanas` | `radio_operating_windows` |
 | Locator Maidenhead | `GET /api/locator` | `maidenhead` |
 | Mi QTH (el mismo que «Mi ubicación») | `PUT /api/me/settings` (`home`) y perfil `PUT /api/profile` | `set_my_location`, `profile_set` |
 

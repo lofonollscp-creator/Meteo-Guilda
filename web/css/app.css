@@ -553,3 +553,14 @@ html,body{overscroll-behavior:none}
 .chart .cur{stroke-dasharray:3 3;opacity:0}
 .chart h4{margin-top:18px}
 @media (max-width:760px){.chart text{font-size:10.5px}}
+
+/* ---------- Avisos oficiales ---------- */
+.avisos{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.aviso{display:flex;gap:10px;padding:11px 13px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);font-size:13.5px;line-height:1.4}
+.aviso p{margin:3px 0 0;color:var(--ink-2);font-size:12.5px}.aviso .aviso-ins{color:var(--ink)}
+.aviso .aviso-zona{color:var(--ink-3);font-size:12px;margin-left:4px}
+.aviso-dot{flex:none;width:12px;height:12px;border-radius:50%;margin-top:4px;background:#e2c13c}
+.aviso-amarillo{border-color:#e2c13c;background:color-mix(in srgb,#e2c13c 12%,var(--surface))}
+.aviso-naranja{border-color:#e68a2e;background:color-mix(in srgb,#e68a2e 14%,var(--surface))}.aviso-naranja .aviso-dot{background:#e68a2e}
+.aviso-rojo{border-color:#c0392b;background:color-mix(in srgb,#c0392b 14%,var(--surface))}.aviso-rojo .aviso-dot{background:#c0392b}
+.aviso-links{margin:0;font-size:12px;color:var(--ink-3)}.aviso-links a{color:var(--accent);text-decoration:underline}

@@ -98,7 +98,7 @@ def propagation_series(d: dict, now: datetime | None = None) -> dict:
             continue
         out.append({"time": h["time"][i], "gradient": round(g), "cat": classify_gradient(g), "level_hpa": lvl})
     worst = min(out, key=lambda x: x["gradient"]) if out else None
-    return {"serie": out, "peor": worst,
+    return {"serie": out, "peor": worst, "utc_offset": d.get("utc_offset_seconds", 0),
             "nota": "Indicador orientativo basado en modelos; los conductos reales dependen de capas finas que "
                     "los modelos resuelven mal (típicas inversiones sobre el mar o en anticiclón)."}
 

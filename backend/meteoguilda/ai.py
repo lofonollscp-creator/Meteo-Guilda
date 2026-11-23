@@ -234,13 +234,58 @@ async def free_models(client: httpx.AsyncClient) -> list[str]:
                                                     (m.get("pricing", {}).get("prompt", 1),
                                                      m.get("pricing", {}).get("completion", 1)))]
         free.sort(key=lambda m: m.get("context_length", 0), reverse=True)
-        ids = [m["id"] for m in free][:6]
+        ids = [m["id"] for m in free][:12]
         if ids:
             _models_cache = (time.time(), ids)
             return ids
     except Exception as e:  # noqa: BLE001
         log.warning("no se pudo listar modelos: %s", e)
     return _models_cache[1] or DEFAULT_MODELS
+
+
+# ---------- salud de los modelos gratuitos ----------
+# Los :free de OpenRouter se saturan (429), se retiran o devuelven basura. Se recuerda cómo les fue para no volver a llamar a uno caído en cada petición.
+_PAUSA = {"429": 300, "cifras": 900, "vacio": 900, "error": 1800}      # segundos de pausa según el tipo de fallo
+_health: dict[str, dict] = {}
+
+
+def note(model: str, kind: str | None) -> None:
+    """kind=None: respondió bien. Si no: '429' | 'cifras' | 'vacio' | 'error'."""
+    h = _health.setdefault(model, {})
+    if kind is None:
+        h["ok"], h["until"], h["kind"] = time.time(), 0, None
+    else:
+        h["fail"], h["until"], h["kind"] = time.time(), time.time() + _PAUSA.get(kind, 600), kind
+
+
+def kind_of(e: Exception) -> str:
+    if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (429, 503, 502):
+        return "429"
+    if isinstance(e, ValidationError | ValueError | TypeError | KeyError | IndexError | AttributeError):
+        return "vacio"
+    return "error"
+
+
+async def ranked_free_models(client: httpx.AsyncClient, n: int = 5) -> list[str]:
+    """Modelos gratuitos por orden de probabilidad de acertar: primero los que respondieron hace poco, luego los no probados; los que están
+    en pausa quedan fuera (salvo que no quede ninguno). `openrouter/free` (el enrutador de OpenRouter, que elige uno libre) va siempre de reserva."""
+    now = time.time()
+    pool = list(dict.fromkeys([*(await free_models(client)), "openrouter/free"]))
+    live = [m for m in pool if _health.get(m, {}).get("until", 0) <= now]
+    live.sort(key=lambda m: -_health.get(m, {}).get("ok", 0))
+    if "openrouter/free" in live and live.index("openrouter/free") >= n:
+        live[n - 1] = "openrouter/free"
+    return (live or pool)[:n]
+
+
+def why_failed(kinds: list[str]) -> str:
+    if not kinds:
+        return "La IA no ha podido responder ahora."
+    if "429" in kinds:
+        return "Los modelos gratuitos están saturados ahora mismo (límite de uso de OpenRouter)."
+    if "cifras" in kinds:
+        return "La IA respondió con cifras que no estaban en los datos y se descartó por seguridad."
+    return "Los modelos gratuitos no han devuelto una respuesta válida."
 
 
 def _extract_json(txt: str | None) -> dict:
@@ -271,13 +316,14 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
     api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         return None
-    models = [cfg.model] if cfg and cfg.model else await free_models(client)
+    models = [cfg.model] if cfg and cfg.model else await ranked_free_models(client)
+    kinds: list[str] = []
     for model in models:
         try:
             r = await client.post(
-                f"{BASE}/chat/completions", timeout=90,
+                f"{BASE}/chat/completions", timeout=60,
                 headers={"Authorization": f"Bearer {api_key}", "X-Title": "Meteo Guilda"},
-                json={"model": model, "temperature": 0.2,
+                json={"model": model, "temperature": 0.2, "max_tokens": 1200,
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": user}]})
             r.raise_for_status()
@@ -285,11 +331,18 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
             bad = check(fc, context)
             if bad:
                 log.warning("%s: cifras sin respaldo %s; descartado", model, bad)
+                note(model, "cifras"); kinds.append("cifras")
                 continue
+            note(model, None)
             return fc, model
         except (httpx.HTTPError, KeyError, IndexError, TypeError, AttributeError, ValueError, ValidationError) as e:
             log.warning("%s falló: %s", model, e)
+            k = kind_of(e); note(model, k); kinds.append(k)
+    generate.last_why = why_failed(kinds)
     return None
+
+
+generate.last_why = ""
 
 
 def rules_forecast(context: dict) -> AIForecast:

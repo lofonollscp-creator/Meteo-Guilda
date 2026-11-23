@@ -268,6 +268,7 @@ function render(d) {
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${esc(lug.name)}</h1><p>${area}</p></div><div class="d-actions" id="actions"></div></div>
   <div class="badges"><span class="badge">${confBars(p.confianza)} Confianza ${esc(p.confianza)}</span><span class="badge">Actualizado ${fmtTime(d.generado)}</span><span class="badge">${nm} modelos</span><span class="badge" id="aibadge"></span></div>
+  <div id="avisos" class="avisos" aria-live="polite"></div>
 
   <div class="hero" style="--tint:${tint}">
     <div class="hero-temp num" aria-label="Temperatura prevista ahora">${t0(now.temp_c.mean)}<sup>°C</sup></div>
@@ -337,6 +338,7 @@ function render(d) {
   $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); drawModels(c); }));
   drawCharts(T, mountain);
   drawModels(c);
+  loadAvisos(la, lo, req);
   lazyLoad("#act-sec", () => loadActivities(la, lo));
   lazyLoad("#air-sec", () => loadAir(la, lo));
   $$("[data-mv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { mvar = b.dataset.mv; $$("[data-mv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawModels(c); }));
@@ -394,6 +396,18 @@ async function paintReading(d) {
 }
 
 /* ---------- actividades y aire: se piden cuando la sección entra en pantalla ---------- */
+/* ---------- avisos oficiales (AEMET/Meteoalerta): la capa de seguridad, siempre antes que cualquier lectura ---------- */
+async function loadAvisos(la, lo, my) {
+  const box = $("#avisos"); if (!box) return;
+  let r; try { r = await api(`/api/avisos?lat=${la}&lon=${lo}`); } catch { return; }
+  if (my !== req || !$("#avisos")) return;
+  const hm = (iso) => (iso ? new Date(iso).toLocaleString("es", { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).replace(".", "") : "");
+  const links = r.enlaces.map((e) => `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.nombre)}</a>`).join(" · ");
+  box.innerHTML = r.avisos.map((a) => `<div class="aviso aviso-${esc(a.color)}" role="alert"><span class="aviso-dot" aria-hidden="true"></span><div><b>${esc(a.evento)}</b> <span class="aviso-zona">${esc(a.zona)}</span>
+      <p>${a.desde ? `Desde ${esc(hm(a.desde))}` : ""}${a.hasta ? ` hasta ${esc(hm(a.hasta))}` : ""}${a.descripcion ? ` · ${esc(a.descripcion)}` : ""}</p>${a.instruccion ? `<p class="aviso-ins">${esc(a.instruccion)}</p>` : ""}</div></div>`).join("")
+    + `<p class="aviso-links">${r.disponible ? (r.avisos.length ? "" : "Sin avisos oficiales vigentes en esta zona. ") : ""}Avisos oficiales: ${links}${r.disponible ? "" : " · <em>aquí solo mostramos el enlace; consúltalos antes de salir</em>"}</p>`;
+}
+
 function lazyLoad(sel, fn) {
   const el = $(sel); if (!el) return;
   if (!("IntersectionObserver" in window)) { fn(); return; }

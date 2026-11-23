@@ -213,6 +213,20 @@ async def portable_operation_window(lat: float, lon: float) -> dict:
 
 
 @mcp.tool()
+async def get_official_warnings(lat: float, lon: float) -> dict:
+    """Avisos oficiales vigentes (AEMET/Meteoalerta) que afectan a un punto, con nivel (amarillo/naranja/rojo), zona, horas e instrucciones, más enlaces
+    oficiales (AEMET, Meteocat, Météo-France, MeteoAlarm). `disponible=false` significa que el servidor no puede consultarlos: no es «sin avisos»."""
+    return await _call("GET", "/api/avisos", params={"lat": lat, "lon": lon})
+
+
+@mcp.tool()
+async def radio_operating_windows(lat: float, lon: float, mode: str = "fijo") -> dict:
+    """Cuándo conviene operar en las próximas 48 h, en tramos de 3 h: HF (luz, línea gris, estado solar), tropo VHF/UHF, pasos de satélites y,
+    con mode="portatil" (POTA/SOTA/móvil), el tiempo para la antena. Notas 0-100 por capa, mejores tramos y bandas recomendadas."""
+    return await _call("GET", "/api/radio/ventanas", params={"lat": lat, "lon": lon, "modo": mode})
+
+
+@mcp.tool()
 async def get_stations(south: float, west: float, north: float, east: float, max_age_min: int = 120) -> list[dict]:
     """Estaciones meteo APRS en un recuadro (con calidad: ok/range/outlier)."""
     return await _call("GET", "/api/stations", params={"south": south, "west": west, "north": north, "east": east, "max_age_min": max_age_min})

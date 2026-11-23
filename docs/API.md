@@ -32,6 +32,8 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/solar` | Kp y flujo solar (NOAA) |
 | `GET /api/satellites` · `GET /api/satellites/passes?lat=&lon=&hours=&min_el=&sats=` | Satélites y sus pasos |
 | `GET /api/portable?lat=&lon=` | Mejores ventanas para operar en portátil |
+| `GET /api/avisos?lat=&lon=` | Avisos oficiales vigentes (AEMET) del punto + enlaces; requiere `AEMET_API_KEY` para los avisos |
+| `GET /api/radio/ventanas?lat=&lon=&modo=fijo\|portatil` | Tramos de 3 h (48 h) con nota de HF, tropo, satélites y campo |
 | `GET /api/locator?lat=&lon=` o `?loc=` | Maidenhead ↔ coordenadas |
 
 ## Perfil y cuaderno (cabecera `Authorization: Bearer <clave>`)

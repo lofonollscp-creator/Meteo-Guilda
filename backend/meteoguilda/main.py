@@ -19,6 +19,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import ventanas as ventanas_mod
+from . import avisos as avisos_mod
 from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
@@ -133,7 +135,7 @@ async def ai_forecast(http: httpx.AsyncClient, lat: float, lon: float, cfg: ai.A
         res = await ai.generate(base["datos"], http, cfg=cfg)
         out = ({"pronostico": res[0].model_dump(), "origen": "ia", "modelo_ia": res[1]} if res
                else {"pronostico": base["pronostico"], "origen": "reglas", "modelo_ia": None,
-                     "aviso": "La IA no ha podido responder ahora (los modelos gratuitos están saturados o fallaron). Se muestra el resumen automático; inténtalo en unos minutos."})
+                     "aviso": f"{getattr(ai.generate, 'last_why', '') or 'La IA no ha podido responder ahora.'} Se muestra el resumen automático; inténtalo en unos minutos."})
         out["generado"] = int(time.time())
         _ai[k] = (time.time() if res else time.time() - AI_TTL + 300, out)
         if len(_ai) > 500:
@@ -274,6 +276,13 @@ async def forecast(request: Request, place: str | None = None, lat: float | None
     return {**out, "lugar": lugar}
 
 
+@app.get("/api/avisos")
+async def avisos(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Avisos oficiales vigentes (AEMET/Meteoalerta) que afectan al punto, más los enlaces oficiales. Sin clave de AEMET solo salen los enlaces."""
+    limit(request, "point")
+    return avisos_mod.para_punto(await avisos_mod.todos(H(request)), lat, lon)
+
+
 @app.get("/api/forecast/ai")
 async def forecast_ai(request: Request, place: str | None = None, lat: float | None = Query(None, ge=-90, le=90),
                       lon: float | None = Query(None, ge=-180, le=180), solo_cache: bool = False):
@@ -411,13 +420,20 @@ async def assistant(request: Request, req: ChatReq):
     if msgs[0]["role"] != "user":
         msgs = msgs[1:] or msgs
     last: Exception | None = None
-    for model in ([cfg.model] if cfg.provider != "server" or cfg.model else (await ai.free_models(http))[:4]):
+    free = cfg.provider == "server" and not cfg.model
+    for model in ([cfg.model] if not free else await ai.ranked_free_models(http, 5)):
         try:
-            text = await ai.complete(http, cfg, system, msgs, model=model, max_tokens=800, temperature=0.3, timeout=75)
+            text = await ai.complete(http, cfg, system, msgs, model=model, max_tokens=800, temperature=0.3, timeout=60)
             if text.strip():
+                if free:
+                    ai.note(model, None)
                 return {"answer": text.strip(), "model": model}
-        except (httpx.HTTPError, ValueError) as e:
+            if free:
+                ai.note(model, "vacio")
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as e:
             last = e
+            if free:
+                ai.note(model, ai.kind_of(e))
             log.warning("asistente %s/%s: %s", cfg.provider, model, e)
     raise HTTPException(502, f"La IA no ha respondido: {ai.friendly_error(last)}" if last else "La IA no ha respondido")
 
@@ -597,13 +613,9 @@ async def satellites_list(request: Request):
     return satellites.catalog(await satellites.load_tles(H(request)))
 
 
-@app.get("/api/satellites/passes")
-async def satellites_passes(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
-                            hours: float = Query(24, gt=0, le=48), min_el: float = Query(10, ge=0, le=80), sats: str | None = None,
-                            alt_m: float = Query(0, ge=-500, le=9000)):
-    """Próximos pasos de satélites de aficionados (por defecto ISS y los FM/lineales más usados) sobre un punto."""
-    limit(request, "sat")
-    tles = await satellites.load_tles(H(request))
+async def _sat_passes(http: httpx.AsyncClient, lat: float, lon: float, hours: float, min_el: float, sats: str | None = None, alt_m: float = 0):
+    """(satélites elegidos, pasos) con caché de 5 min; por defecto, la ISS y los de aficionados más usados."""
+    tles = await satellites.load_tles(http)
     if sats:
         want = {int(x) for x in sats.split(",") if x.strip().isdigit()}
         chosen = [t for t in tles if t["norad"] in want][:10]
@@ -625,8 +637,18 @@ async def satellites_passes(request: Request, lat: float = Query(ge=-90, le=90),
         if len(_sat_cache) > 200:
             _sat_cache.clear()
         hit = _sat_cache[key] = (time.time(), res)
+    return chosen, hit[1]
+
+
+@app.get("/api/satellites/passes")
+async def satellites_passes(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
+                            hours: float = Query(24, gt=0, le=48), min_el: float = Query(10, ge=0, le=80), sats: str | None = None,
+                            alt_m: float = Query(0, ge=-500, le=9000)):
+    """Próximos pasos de satélites de aficionados (por defecto ISS y los FM/lineales más usados) sobre un punto."""
+    limit(request, "sat")
+    chosen, pasos = await _sat_passes(H(request), lat, lon, hours, min_el, sats, alt_m)
     return {"observador": {"lat": lat, "lon": lon, "alt_m": alt_m}, "satelites": [{"norad": t["norad"], "nombre": t["name"]} for t in chosen],
-            "pasos": hit[1], "nota": "Horas en ISO 8601 UTC. Elevaciones en grados sobre el horizonte; las frecuencias activas "
+            "pasos": pasos, "nota": "Horas en ISO 8601 UTC. Elevaciones en grados sobre el horizonte; las frecuencias activas "
             "cambian: consulta AMSAT/ARISS.", "iss": satellites.ISS_INFO}
 
 
@@ -655,6 +677,39 @@ async def portable_window(request: Request, lat: float = Query(ge=-90, le=90), l
     out = portable.window(openmeteo.hourly_consensus(raw), lat, lon)
     out["ubicacion"] = {"lat": lat, "lon": lon, "locator": radio.to_locator(lat, lon), "altitud_m": raw.get("elevation")}
     _portable_cache[k] = (time.time(), out)
+    return out
+
+
+_ventanas_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+@app.get("/api/radio/ventanas")
+async def radio_ventanas(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), modo: str = Query("fijo", pattern="^(fijo|portatil)$")):
+    """Cuándo operar en las próximas 48 h (tramos de 3 h): HF, tropo VHF/UHF, satélites y, en modo portátil, el tiempo para la antena."""
+    k = (_key(lat, lon), modo)
+    hit = _ventanas_cache.get(k)
+    if hit and time.time() - hit[0] < 1200:
+        return hit[1]
+    limit(request, "portable")
+    http = H(request)
+    try:
+        raw, trp, sol = await asyncio.gather(openmeteo.fetch_many([(lat, lon)], days=3, client=http), radio.propagation(http, lat, lon), radio.solar(http), return_exceptions=True)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, "Fuente de datos no disponible") from e
+    if isinstance(raw, Exception):
+        raise HTTPException(502, f"Fuente de modelos no disponible: {raw}")
+    try:
+        _, pasos = await _sat_passes(http, lat, lon, 48, 15)
+    except HTTPException:
+        pasos = []
+    win = portable.window(openmeteo.hourly_consensus(raw[0]), lat, lon)
+    out = ventanas_mod.construir(lat, lon, ahora=datetime.now(timezone.utc), horas_campo=win["horas"], tropo_serie=None if isinstance(trp, Exception) else trp,
+                                 solar={} if isinstance(sol, Exception) else sol, pasos=pasos, modo=modo)
+    out["ubicacion"] = {"lat": lat, "lon": lon, "locator": radio.to_locator(lat, lon), "altitud_m": raw[0].get("elevation")}
+    out["fuentes"] = {"modelos": True, "tropo": not isinstance(trp, Exception), "solar": not isinstance(sol, Exception) and sol.get("kp") is not None, "satelites": bool(pasos)}
+    if len(_ventanas_cache) > 200:
+        _ventanas_cache.clear()
+    _ventanas_cache[k] = (time.time(), out)
     return out
 
 

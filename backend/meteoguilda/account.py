@@ -175,12 +175,14 @@ async def test(request: Request):
             if not os.environ.get("OPENROUTER_API_KEY"):
                 raise ValueError("El servidor no tiene clave de IA configurada")
             last = None
-            for m in await ai.free_models(request.app.state.http):
+            for m in await ai.ranked_free_models(request.app.state.http, 6):
                 try:
                     txt = await ai.complete(request.app.state.http, cfg, "Responde solo OK.", [{"role": "user", "content": "Di OK"}], model=m, max_tokens=20, timeout=40)
+                    ai.note(m, None)
                     return {"ok": True, "provider": "server", "model": m, "ms": round((time.time() - t0) * 1000), "respuesta": txt.strip()[:40]}
                 except (httpx.HTTPError, ValueError) as e:
                     last = e
+                    ai.note(m, ai.kind_of(e))
             raise ValueError(f"Ningún modelo gratuito responde ahora ({ai.friendly_error(last)})")
         txt = await ai.complete(request.app.state.http, cfg, "Responde solo OK.", [{"role": "user", "content": "Di OK"}], max_tokens=20, timeout=40)
         return {"ok": True, "provider": cfg.provider, "model": cfg.model, "ms": round((time.time() - t0) * 1000), "respuesta": txt.strip()[:40]}

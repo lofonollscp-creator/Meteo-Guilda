@@ -82,7 +82,7 @@ async def test_una_respuesta_vacia_de_un_modelo_no_rompe_el_pronostico(monkeypat
 
     def handler(req: httpx.Request):
         import json
-        if json.loads(req.content)["model"] == "vacio:free":
+        if json.loads(req.content)["model"] in ("vacio:free", "openrouter/free"):
             return httpx.Response(200, json={"choices": [{"message": {"content": None}}]})      # OpenRouter a veces devuelve content null
         return httpx.Response(200, json={"choices": [{"message": {"content": '{"resumen":"Día estable, unos 10 °C.","confianza":"media"}'}}]})
 
@@ -91,3 +91,26 @@ async def test_una_respuesta_vacia_de_un_modelo_no_rompe_el_pronostico(monkeypat
         assert res and res[1] == "bueno:free"
         monkeypatch.setenv("MG_MODELS", "vacio:free")
         assert await ai.generate(ctx, c, api_key="k") is None                                    # y si todos fallan: None (la API cae al resumen por reglas), nunca un 500
+
+
+async def test_los_modelos_caidos_se_saltan_y_se_explica_por_que(monkeypatch):
+    ctx = ai.build_context(openmeteo.summarize(fake_openmeteo()), [])
+    monkeypatch.setenv("MG_MODELS", "sat:free,ok:free")
+    ai._health.clear()
+    llamadas = []
+
+    def handler(req: httpx.Request):
+        import json
+        m = json.loads(req.content)["model"]; llamadas.append(m)
+        if m in ("sat:free", "openrouter/free"):
+            return httpx.Response(429)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"resumen":"Día estable, unos 10 °C.","confianza":"media"}'}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        assert (await ai.generate(ctx, c, api_key="k"))[1] == "ok:free"
+        llamadas.clear()
+        assert (await ai.generate(ctx, c, api_key="k"))[1] == "ok:free"
+        assert "sat:free" not in llamadas                    # el saturado está en pausa y no se vuelve a llamar
+        ai._health.clear(); monkeypatch.setenv("MG_MODELS", "sat:free")
+        assert await ai.generate(ctx, c, api_key="k") is None
+        assert "saturados" in ai.generate.last_why
