@@ -109,6 +109,17 @@ async def get_forecast_data(lat: float, lon: float) -> dict:
 
 
 @mcp.tool()
+async def get_forecast_by_name(place_name: str) -> dict:
+    """Busca un pueblo o ciudad por su nombre («Sitges», «Vielha», «Santa Cruz, Tenerife») y devuelve directamente sus datos previstos
+    (como get_forecast_data) junto al lugar elegido y las demás coincidencias, por si hay homónimos. Evita encadenar search_place y get_forecast_data."""
+    hits = await _call("GET", "/api/search", params={"q": place_name})
+    if not hits:
+        raise RuntimeError(f"No he encontrado ningún lugar llamado «{place_name}»")
+    h = hits[0]
+    return {"lugar": h, "otras_coincidencias": hits[1:4], "datos": await _call("GET", "/api/raw", params={"lat": h["lat"], "lon": h["lon"]})}
+
+
+@mcp.tool()
 async def get_ai_forecast(place: str | None = None, lat: float | None = None, lon: float | None = None, refresh: bool = False) -> dict:
     """Resumen automático por reglas (resumen, riesgos, recomendaciones) más los datos de origen de todos los modelos y
     observaciones. La lectura redactada por IA la pide la web con los ajustes de cada persona; aquí razona tú con los datos. Pasa `place` (slug: garos, premia-de-mar, tortoles-de-esgueva, bresca, la-garrovilla,

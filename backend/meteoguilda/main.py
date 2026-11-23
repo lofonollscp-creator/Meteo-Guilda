@@ -24,7 +24,7 @@ from . import avisos as avisos_mod
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
-from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
+from . import assistant_tools, account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
 log = logging.getLogger("api")
@@ -410,7 +410,7 @@ numéricos y observaciones reales de estaciones APRS, METAR y XEMA), rutas con e
 (repetidores, propagación, satélites, cuaderno QSL). Responde en español, claro y breve.
 Formato: puedes usar Markdown sencillo (**negrita** para lo importante, listas con guiones, títulos con ## solo si la respuesta es larga, tablas pequeñas para comparar horas). Nada de HTML.
 Reglas:
-- Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar»; si no hay datos del lugar, pide que elija uno en la app. No inventes cifras.
+- Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar» o los resultados de las herramientas; si no tienes datos del lugar, búscalo tú con las herramientas por su nombre. No inventes cifras.
 - Si la confianza es baja o los modelos discrepan, dilo. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.
 - En radioafición puedes explicar conceptos y usar los repetidores del bloque de datos si aparece; no inventes frecuencias ni indicativos.
 - Si la persona dice «aquí», «donde estoy» o «mi ubicación», usa el bloque «Datos de Mi ubicación» (si no existe, pídele que la active con el botón «Mi ubicación» de la app).
@@ -465,23 +465,51 @@ async def assistant(request: Request, req: ChatReq):
     msgs = [{"role": m.role, "content": m.content} for m in req.messages[-14:]]
     if msgs[0]["role"] != "user":
         msgs = msgs[1:] or msgs
-    last: Exception | None = None
     free = cfg.provider == "server" and not cfg.model
-    for model in ([cfg.model] if not free else await ai.ranked_free_models(http, 5)):
-        try:
-            text = await ai.complete(http, cfg, system, msgs, model=model, max_tokens=800, temperature=0.3, timeout=60)
-            if text.strip():
+    elegido: list[str] = []          # el modelo que respondió: se reutiliza en las vueltas siguientes
+
+    async def ask(system_: str, msgs_: list[dict]) -> tuple[str, str]:
+        last: Exception | None = None
+        modelos = elegido[:1] or ([cfg.model] if not free else await ai.ranked_free_models(http, 5))
+        for model in modelos:
+            try:
+                text = await ai.complete(http, cfg, system_, msgs_, model=model, max_tokens=800, temperature=0.3, timeout=60)
+                if text.strip():
+                    if free:
+                        ai.note(model, None)
+                    elegido[:] = [model]
+                    return text, model
                 if free:
-                    ai.note(model, None)
-                return {"answer": text.strip(), "model": model}
-            if free:
-                ai.note(model, "vacio")
-        except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as e:
-            last = e
-            if free:
-                ai.note(model, ai.kind_of(e))
-            log.warning("asistente %s/%s: %s", cfg.provider, model, e)
-    raise HTTPException(502, f"La IA no ha respondido: {ai.friendly_error(last)}" if last else "La IA no ha respondido")
+                    ai.note(model, "vacio")
+            except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as e:
+                last = e
+                if free:
+                    ai.note(model, ai.kind_of(e))
+                log.warning("asistente %s/%s: %s", cfg.provider, model, e)
+        if elegido and not last:
+            elegido.clear()
+        raise HTTPException(502, f"La IA no ha respondido: {ai.friendly_error(last)}" if last else "La IA no ha respondido")
+
+    env = assistant_tools.Entorno(
+        app=request.app, http=http,
+        ip=(request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip(),
+        viendo={"name": req.name or "punto", "lat": req.lat, "lon": req.lon} if req.lat is not None and req.lon is not None else None,
+        casa={"name": home.get("name") or "Mi ubicación", "lat": home["lat"], "lon": home["lon"]} if home else None)
+    usadas: list[dict] = []
+    system += assistant_tools.catalogo_texto()
+    for paso in range(assistant_tools.MAX_PASOS):
+        ultima = paso == assistant_tools.MAX_PASOS - 1
+        text, model = await ask(system, msgs)
+        llamadas = assistant_tools.parse(text)
+        if not llamadas or ultima:
+            respuesta = assistant_tools.limpiar(text)
+            if respuesta:
+                return {"answer": respuesta, "model": model, "herramientas": assistant_tools.resumen_uso(usadas), "lugares": env.usados[:6]}
+            raise HTTPException(502, "La IA no ha respondido")
+        res = await assistant_tools.ejecutar_todas(env, llamadas)
+        usadas += res
+        msgs += [{"role": "assistant", "content": text}, {"role": "user", "content": assistant_tools.respuesta_para_modelo(llamadas, res, paso == assistant_tools.MAX_PASOS - 2)}]
+    raise HTTPException(502, "La IA no ha respondido")
 
 
 @app.get("/api/raw")

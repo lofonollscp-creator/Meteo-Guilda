@@ -57,7 +57,7 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 |---|---|
 | `GET /api/me/settings` · `PUT /api/me/settings` | IA sí/no, proveedor, modelo, claves guardadas (solo «••••1234») y **Mi ubicación** (`home` {lat, lon, name}; `null` la borra) |
 | `PUT/DELETE /api/me/key` · `GET /api/me/models?provider=` · `POST /api/me/test` | Clave propia (cifrada), catálogo de modelos y prueba de conexión |
-| `POST /api/assistant` | Chat: `{messages, lat?, lon?, name?, section?, home?}`; usa tu proveedor y modelo, el lugar abierto y tu ubicación |
+| `POST /api/assistant` | Chat: `{messages, lat?, lon?, name?, section?, home?}`; usa tu proveedor y modelo, el lugar abierto y tu ubicación. **Con herramientas**: el modelo puede buscar pueblos por nombre y llamar a previsión, avisos, aire, mar, comparar, actividad, ruta, observaciones, propagación, HF, repetidores, satélites, astro, portátil, ventanas y locator (hasta 4 vueltas). Devuelve `{answer, model, herramientas[], lugares[]}` |
 | `DELETE /api/me` | Borra tus ajustes y claves |
 
 Desde el servicio MCP (red interna) las rutas `/api/me/*`, `/api/assistant` y `/api/forecast/ai` aceptan `X-Admin-Token` + `X-Act-As: <sub>` para actuar en nombre de la persona

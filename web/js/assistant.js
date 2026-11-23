@@ -10,13 +10,13 @@ let ctx, el, chats = [], curId = null, busy = false, openAccount, full = LS.get(
 /* ---------- Texto contextual por sección ---------- */
 const SPARK = '<path d="M12 3.5 13.6 9l5.4 1.6-5.4 1.6L12 17.5l-1.6-5.3L5 10.6 10.4 9z"/>';
 const HINTS = [
-  ["¿Qué tiempo hará mañana?", "Resumen del lugar, con lluvia y viento", "cloud"],
-  ["¿Cuándo salgo a caminar?", "La mejor ventana de las próximas 48 h", "route"],
+  ["¿Qué tiempo hará en Sitges el sábado?", "Busco el pueblo y te doy la previsión", "cloud"],
+  ["Ruta de Vielha a Arties a pie", "Distancia, desnivel y meteo a cada hora", "route"],
   ["¿Cómo está la propagación?", "HF, tropo y línea gris en tu QTH", "wave"],
   ["¿Cuándo pasa la ISS?", "Próximos pasos sobre tu ubicación", "satellite"],
 ];
 const SUG = {
-  home: ["¿Qué tiempo hará mañana?", "¿Cuándo salgo a caminar?", "¿Cómo está la propagación hoy?", "¿Cuándo pasa la ISS?"],
+  home: ["¿Qué tiempo hará en Sitges el sábado?", "Compara Sitges y Vilanova", "¿Cómo está la propagación hoy?", "¿Cuándo pasa la ISS?"],
   forecast: ["¿Salgo mañana a caminar?", "¿Qué riesgos hay estos días?", "¿Qué me pongo?"],
   comparar: ["¿Cuál es mejor para salir mañana?", "¿Dónde llueve menos?"],
   routes: ["¿Y si salgo antes?", "¿Qué llevo para la cresta?", "Compara con otro día"],
@@ -159,12 +159,18 @@ function drawHist() {
   };
 }
 const shortModel = (m = "") => { const t = m.replace(":free", ""); return t.length > 26 ? t.split("/").pop() : t; };
+const toolRow = (m) => {
+  const t = (m.tools || []).filter((x, i, a) => a.findIndex((y) => y.nombre === x.nombre && y.lugar === x.lugar) === i);
+  const pl = (m.places || []).slice(0, 3);
+  if (!t.length) return "";
+  return `<div class="tools" aria-label="Datos consultados">${t.map((x) => `<span class="tl${x.ok ? "" : " bad"}" title="${esc(x.ok ? "" : x.error || "")}">${esc(x.etiqueta)}${x.lugar ? ` · ${esc(x.lugar.split(" (")[0])}` : ""}</span>`).join("")}${pl.map((p) => `<a class="tl go" href="#/forecast/p/${(+p.lat).toFixed(4)},${(+p.lon).toFixed(4)},${encodeURIComponent(p.name)}">Abrir ${esc(p.name.split(" (")[0])} ${icon("right", 12)}</a>`).join("")}</div>`;
+};
 const AV = () => `<span class="av" aria-hidden="true">${icon("spark", 14)}</span>`;
 function bubble(m, i, last) {
   if (m.role === "user") return `<div class="m u">${esc(m.content)}</div>`;
-  const foot = !m.err && m.model !== undefined ? `<div class="mf"><span class="ok-chk">${icon("check", 13)} Cifras comprobadas contra los datos</span><span class="mf-r"><small>${esc(shortModel(m.model))}</small>
+  const foot = !m.err && m.model !== undefined ? `<div class="mf"><span class="ok-chk">${icon("check", 13)} Con datos reales</span><span class="mf-r"><small>${esc(shortModel(m.model))}</small>
     <button type="button" class="copy" data-copy="${i}" aria-label="Copiar respuesta" title="Copiar">${icon("link", 13)} Copiar</button>${last ? `<button type="button" class="copy" data-regen="1" aria-label="Volver a generar" title="Volver a generar">${icon("refresh", 13)} Regenerar</button>` : ""}</span></div>` : "";
-  return `<div class="m a${m.err ? " err" : ""}">${AV()}<div class="mb">${m.err ? `<p>${esc(m.content)}</p>` : md(m.content)}${foot}</div></div>`;
+  return `<div class="m a${m.err ? " err" : ""}">${AV()}<div class="mb">${m.err ? `<p>${esc(m.content)}</p>` : md(m.content)}${toolRow(m)}${foot}</div></div>`;
 }
 function drawMsgs() {
   const box = $("#chat-msgs", el); if (!box) return;
@@ -214,7 +220,7 @@ async function ask(text) {
     if (r.status === 401 && r.headers.get("x-auth") === "login") { location.href = "/api/auth/login?return_to=" + encodeURIComponent(location.pathname + location.hash); return; }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : `Error ${r.status}`);
-    c.m.push({ role: "assistant", content: d.answer, model: d.model });
+    c.m.push({ role: "assistant", content: d.answer, model: d.model, tools: d.herramientas || [], places: d.lugares || [] });
   } catch (e) { c.m.push({ role: "assistant", content: e.message, err: true }); }
   c.m = c.m.slice(-30); save();
   busy = false; drawMsgs(); drawHist(); $("#chat-send", el)?.removeAttribute("disabled");

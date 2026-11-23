@@ -927,3 +927,10 @@ body.chat-open .askstick{opacity:.35;pointer-events:none}
 #cmp-pick .mchip[aria-pressed="true"] i{box-shadow:0 0 0 2px var(--surface)}
 @media (max-width:340px){.nav #chatbtn{width:32px;height:32px}}
 @media (max-width:340px){.nav .icon-btn{width:32px;height:32px}.nav #chatbtn{width:32px;height:32px}}
+
+/* ---------- Herramientas del asistente (datos consultados y enlaces a lugares) ---------- */
+.chat .tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.chat .tools .tl{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:4px 10px;border-radius:999px;background:var(--surface);color:var(--ink-2);box-shadow:var(--ring);text-decoration:none}
+.chat .tools .tl.bad{color:var(--bad)}
+.chat .tools a.tl.go{background:var(--ai-soft);color:var(--ai);box-shadow:none;font-weight:550}
+.chat .tools a.tl.go svg{stroke:currentColor;fill:none;width:12px;height:12px}
