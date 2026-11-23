@@ -21,6 +21,7 @@ const P = {
   left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
   download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+  bell: '<path d="M6 17.5h12l-1.5-2V11a4.5 4.5 0 0 0-9 0v4.5zM10 20.5h4"/>',
   upload: '<path d="M12 16V5M7 9l5-5 5 5M5 20h14"/>',
   trash: '<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7M10.5 11v5M13.5 11v5"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',

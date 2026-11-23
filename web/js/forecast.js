@@ -307,6 +307,10 @@ function render(d) {
 
   <section class="sec" id="air-sec"><div class="label">Aire, UV y polen <em>estimación del modelo CAMS</em></div><div id="airbox"><p class="empty">Cargando…</p></div></section>
 
+  ${mountain ? `<section class="sec" id="mon-sec"><div class="label">Montaña <em>próximas 48 h</em></div>${mountainCard(T.slice(0, 16), c.ubicacion.altitud_m)}</section>` : ""}
+
+  <section class="sec" id="mar-sec" hidden><div class="label">Mar <em>oleaje y agua · modelo marino</em></div><div id="marbox"></div></section>
+
   <section class="sec"><div class="label">Contraste de modelos <em>¿coinciden?</em>
       <span class="seg" role="group" aria-label="Variable">${[["temp_c", "Temp"], ["lluvia_mm", "Lluvia"], ["viento_kmh", "Viento"], ["racha_kmh", "Racha"], ["nubes_pct", "Nubes"]]
         .filter(([k]) => c.por_modelo?.[k]).map(([k, l]) => `<button type="button" data-mv="${k}" aria-pressed="${mvar === k}">${l}</button>`).join("")}</span></div>
@@ -341,6 +345,7 @@ function render(d) {
   loadAvisos(la, lo, req);
   lazyLoad("#act-sec", () => loadActivities(la, lo));
   lazyLoad("#air-sec", () => loadAir(la, lo));
+  loadMar(la, lo);
   $$("[data-mv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { mvar = b.dataset.mv; $$("[data-mv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawModels(c); }));
   paintReading(d);
   renderRose($("#rose"), T);
@@ -455,6 +460,55 @@ async function loadAir(la, lo) {
       ${a.polen?.length ? `<div class="card" style="margin-top:12px"><h3>Polen (máx. 24 h)</h3><div class="mchips">${a.polen.map((p) => `<span class="mchip"><i style="--c:${p.nivel === "sin polen" ? "#9aa5ad" : p.nivel === "bajo" ? "#2e9e5b" : p.nivel === "moderado" ? "#d9a21b" : "#d9482b"}"></i>${esc(p.tipo)} · ${esc(p.nivel)}</span>`).join("")}</div></div>`
         : '<p class="empty" style="margin-top:10px">Sin datos de polen (solo Europa y en temporada).</p>'}`;
   } catch (e) { $("#airbox") && ($("#airbox").innerHTML = `<p class="empty">No se pudo cargar la calidad del aire (${esc(e.message)}).</p>`); }
+}
+
+/* ---------- montaña: lo que importa arriba, calculado con los mismos datos ---------- */
+function mountainCard(T, alt) {
+  const v = (k, f = "mean") => T.map((x) => x[k]?.[f]).filter((x) => x != null);
+  const iso = v("isocero_m"), snow = v("nieve_cm").reduce((a, b) => a + b, 0), cape = Math.max(0, ...v("cape_jkg", "max")), gust = mx(v("racha_kmh", "max"));
+  const chill = T.map((x) => { const t = x.temp_c?.mean, w = x.viento_kmh?.mean; if (t == null || w == null || t > 10 || w < 4.8) return t; const p = w ** 0.16; return 13.12 + 0.6215 * t - 11.37 * p + 0.3965 * t * p; }).filter((x) => x != null);
+  const tmin = chill.length ? Math.min(...chill) : null, isoMin = iso.length ? Math.min(...iso) : null, isoMax = iso.length ? Math.max(...iso) : null;
+  const pill = (lv, t) => `<span class="pill lv${lv}"><i></i>${t}</span>`;
+  const notes = [];
+  if (tmin != null && tmin <= -10) notes.push(pill(2, "Frío intenso: riesgo de congelación")); else if (tmin != null && tmin <= -3) notes.push(pill(1, "Sensación bajo cero"));
+  if (gust >= 80) notes.push(pill(2, "Rachas muy fuertes en cresta")); else if (gust >= 55) notes.push(pill(1, "Viento notable"));
+  if (snow >= 10) notes.push(pill(2, "Nevada importante")); else if (snow >= 1) notes.push(pill(1, "Nieve prevista"));
+  if (cape >= 1000) notes.push(pill(2, "Tormentas: evita crestas")); else if (cape >= 400) notes.push(pill(1, "Posibles tormentas por la tarde"));
+  const cota = alt != null && isoMin != null ? (alt > isoMax ? "Estás por encima del isocero: precipitación en forma de nieve." : alt < isoMin - 300 ? "Toda la precipitación caerá como lluvia en este punto." : "Cerca del isocero: la lluvia puede cambiar a nieve.") : "";
+  return `<div class="card"><div class="grid2">
+    <div><div class="kv"><span>Isocero</span><span class="num">${isoMin != null ? `${nf.format(isoMin)}–${nf.format(isoMax)} m` : "–"}</span></div>
+    <div class="kv"><span>Nieve acumulada</span><span class="num">${nf1.format(snow)} cm</span></div>
+    <div class="kv"><span>Sensación mínima (con viento)</span><span class="num">${tmin != null ? nf.format(Math.round(tmin)) + " °C" : "–"}</span></div></div>
+    <div><div class="kv"><span>Racha máxima</span><span class="num">${nf.format(Math.round(gust))} km/h</span></div>
+    <div class="kv"><span>Energía de tormenta (CAPE)</span><span class="num">${nf.format(Math.round(cape))} J/kg</span></div>
+    <div class="kv"><span>Altitud del punto</span><span class="num">${alt != null ? nf.format(alt) + " m" : "–"}</span></div></div></div>
+    <div class="row" style="margin-top:10px;gap:8px">${notes.join("") || pill(0, "Sin alertas destacadas en estas 48 h")}</div>
+    ${cota ? `<p class="empty" style="margin-top:8px">${cota}</p>` : ""}
+    <p class="empty" style="margin-top:6px;font-size:12px">Sensación térmica por viento y frío (fórmula de enfriamiento). En alta montaña consulta el boletín de aludes y el aviso oficial.</p></div>`;
+}
+
+/* ---------- mar: solo se muestra si el punto tiene oleaje (costa) ---------- */
+async function loadMar(la, lo) {
+  const sec = $("#mar-sec"); if (!sec) return;
+  try {
+    const m = await api(`/api/mar?lat=${la}&lon=${lo}`);
+    if (!m.hay_mar || !$("#mar-sec")) return;
+    const a = m.ahora, pk = m.maximo_48h, H = m.horas.map((x) => ({ ...x, time: x.hora })), fnum = (x, d = 1) => (x == null ? "–" : nf1.format(+x.toFixed(d)));
+    const hh2 = (iso) => `${wd(iso)} ${hh(iso)}`;
+    sec.hidden = false;
+    $("#marbox").innerHTML = `<div class="card"><div class="grid2"><div>
+        <div class="kv"><span>Estado ahora</span><span><span class="pill lv${a.nivel}"><i></i>${esc(a.estado)}</span></span></div>
+        <div class="kv"><span>Ola</span><span class="num">${fnum(a.ola_m)} m · ${fnum(a.periodo_s, 0)} s</span></div>
+        <div class="kv"><span>Viene del</span><span class="num">${a.dir != null ? `${compass(a.dir)} (${Math.round(a.dir)}°)` : "–"}</span></div></div><div>
+        <div class="kv"><span>Mar de fondo</span><span class="num">${fnum(a.fondo_m)} m · ${fnum(a.fondo_periodo_s, 0)} s</span></div>
+        <div class="kv"><span>Agua</span><span class="num">${a.agua_c != null ? nf1.format(a.agua_c) + " °C" : "–"}</span></div>
+        <div class="kv"><span>Máximo 48 h</span><span class="num">${fnum(pk.ola_m)} m <small>${esc(hh2(pk.hora))}</small> <span class="pill lv${pk.nivel}"><i></i>${esc(pk.estado)}</span></span></div></div></div></div>
+      <div id="marchart"></div><p class="empty" style="font-size:12px;margin-top:6px">${esc(m.nota)}</p>`;
+    renderCharts($("#marchart"), H, [
+      { title: "Altura de ola", sub: "m · línea = ola, punteada = mar de fondo", draw: "wind", H: 150, ticks: 3, tickFmt: (v) => nf1.format(v), range: () => [0, Math.max(1, ...H.map((x) => x.ola_m ?? 0))], mean: (i) => H[i].fondo_m ?? 0, gust: (i) => H[i].ola_m ?? 0, dir: (i) => H[i].dir,
+        tip: (i) => `${hh2(H[i].hora)} · ola <b>${fnum(H[i].ola_m)} m</b> ${H[i].periodo_s != null ? `(${fnum(H[i].periodo_s, 0)} s)` : ""} · fondo ${fnum(H[i].fondo_m)} m · ${esc(H[i].estado || "")}` },
+    ], axisFor);
+  } catch { /* sin mar o fuente caída: la sección sigue oculta */ }
 }
 
 /* ---------- recargar los datos ---------- */

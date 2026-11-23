@@ -288,6 +288,13 @@ async def get_air_quality(lat: float, lon: float) -> dict:
 
 
 @mcp.tool()
+async def get_sea_state(lat: float, lon: float) -> dict:
+    """Estado del mar de un punto costero: altura y periodo del oleaje, mar de fondo, dirección, temperatura del agua y estado Douglas, ahora y 48 h.
+    `hay_mar=false` si el punto está tierra adentro."""
+    return await _call("GET", "/api/mar", params={"lat": lat, "lon": lon})
+
+
+@mcp.tool()
 async def list_activities() -> list[dict]:
     """Actividades que sabe planificar `plan_activity` (senderismo, ciclismo, dron, colada, estrellas, playa)."""
     return await _call("GET", "/api/activities")

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
+from . import mar as mar_mod
 from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
@@ -339,6 +340,16 @@ async def air(request: Request, lat: float = Query(ge=-90, le=90), lon: float = 
         return await airq.fetch(H(request), lat, lon)
     except httpx.HTTPError as e:
         raise HTTPException(502, "Fuente de calidad del aire no disponible") from e
+
+
+@app.get("/api/mar")
+async def mar(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Estado del mar del punto (oleaje, mar de fondo, periodo, agua) ahora y 48 h. `hay_mar=false` si está tierra adentro."""
+    limit(request, "point")
+    try:
+        return await mar_mod.fetch(H(request), lat, lon)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Fuente de oleaje no disponible") from e
 
 
 @app.get("/api/activities")

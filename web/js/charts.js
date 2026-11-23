@@ -95,7 +95,7 @@ export function renderCharts(host, items, defs, axis, onCursor) {
       }
       ticks.forEach((t) => {
         el("line", { class: "gl", x1: M.l, x2: W - M.r, y1: y(t), y2: y(t) }, svg);
-        el("text", { x: M.l - 6, y: y(t) + 3.5, "text-anchor": "end" }, svg).textContent = f0(t);
+        el("text", { x: M.l - 6, y: y(t) + 3.5, "text-anchor": "end" }, svg).textContent = d.tickFmt ? d.tickFmt(t) : f0(t);
       });
       d.refs?.forEach((r) => {
         el("line", { class: "ref", x1: M.l, x2: W - M.r, y1: y(r.v), y2: y(r.v) }, svg);

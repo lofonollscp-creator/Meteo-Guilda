@@ -308,14 +308,33 @@ async function satelites() {
       <p class="empty" style="margin-top:10px"><b>ISS:</b> APRS en ${esc(d.iss.aprs)}; voz: ${esc(d.iss.voz)}. ${esc(d.nota)}</p></section>`;
     const show1 = (i) => { const p = d.pasos[i], box = $("#sdet"); box.hidden = false;
       box.innerHTML = `<div class="row between" style="align-items:flex-start"><div><h3 style="margin:0">${esc(p.satelite)}</h3><p class="empty">${t(p.aos)} → ${new Date(p.los).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })} (hora de tu dispositivo)</p></div>
-        <button class="btn ghost sm" id="ics" type="button">${icon("download", 14)} Añadir al calendario</button></div><div class="grid2"><div class="skyplot">${skyplot(p)}</div><div>
+        <span class="row" style="gap:6px;flex-wrap:nowrap"><button class="btn ghost sm" id="alarm" type="button" aria-pressed="${alarms.has(p.aos)}">${icon("bell", 14)} ${alarms.has(p.aos) ? "Aviso activado" : "Avisarme 5 min antes"}</button><button class="btn ghost sm" id="ics" type="button">${icon("download", 14)} Añadir al calendario</button></span></div><div class="grid2"><div class="skyplot">${skyplot(p)}</div><div>
         <div class="kv"><span>Aparece</span><span>${compass(p.aos_az)} (${p.aos_az}°)</span></div><div class="kv"><span>Máxima elevación</span><span>${p.max_el}° al ${compass(p.max_el_az)}</span></div><div class="kv"><span>Desaparece</span><span>${compass(p.los_az)} (${p.los_az}°)</span></div>
         <div class="kv"><span>Distancia mínima</span><span>${nf.format(p.distancia_min_km)} km</span></div><div class="kv"><span>Duración</span><span>${Math.floor(p.duracion_s / 60)}:${pad2(p.duracion_s % 60)}</span></div></div></div>`;
+      $("#alarm").addEventListener("click", () => toggleAlarm(p, () => show1(i)));
       $("#ics").addEventListener("click", () => { const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([ics(p)], { type: "text/calendar" })), download: `pase-${p.satelite.replace(/\W+/g, "-")}.ics` }); a.click(); URL.revokeObjectURL(a.href); });
       $$("#sp .pass").forEach((b, k) => b.setAttribute("aria-pressed", String(k === i))); };
     $("#sp")?.addEventListener("click", (e) => { const b = e.target.closest("[data-i]"); if (b) show1(+b.dataset.i); });
     if (d.pasos.length) show1(0);
   } catch (e) { $("#sats").innerHTML = `<div class="err"><strong>No se pudieron calcular los pasos</strong><p class="empty">${esc(e.message)}</p></div>`; }
+}
+
+/* ---------- aviso de paso: solo mientras esta pestaña esté abierta (no hay servidor de notificaciones push) ---------- */
+const alarms = new Map();
+async function toggleAlarm(p, redraw) {
+  if (alarms.has(p.aos)) { clearTimeout(alarms.get(p.aos)); alarms.delete(p.aos); ctx.toast("Aviso cancelado"); return redraw(); }
+  const ms = new Date(p.aos).getTime() - Date.now() - 5 * 60000;
+  if (ms < -4 * 60000) { ctx.toast("Ese paso ya ha empezado o está a punto"); return; }
+  if ("Notification" in window && Notification.permission === "default") { try { await Notification.requestPermission(); } catch { /* sin permiso: se usa el aviso en pantalla */ } }
+  const fire = () => {
+    alarms.delete(p.aos);
+    const txt = `${p.satelite}: pasa en 5 min (máx. ${p.max_el}°, sale por ${compass(p.aos_az)})`;
+    try { if (Notification.permission === "granted") { new Notification("Paso de satélite", { body: txt, tag: p.aos }); return; } } catch { /* cae al aviso en pantalla */ }
+    ctx.toast(txt);
+  };
+  alarms.set(p.aos, setTimeout(fire, Math.max(0, ms)));
+  ctx.toast(`Te aviso 5 min antes · deja esta pestaña abierta${"Notification" in window && Notification.permission !== "granted" ? " (sin permiso de notificaciones: aviso en pantalla)" : ""}`);
+  redraw();
 }
 
 /* ---------- Operación portátil ---------- */
