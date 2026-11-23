@@ -37,6 +37,7 @@
 /* ---------- Base ---------- */
 *{box-sizing:border-box}
 html,body{height:100%}
+html{background:var(--bg)}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 a{color:var(--accent)}
@@ -47,7 +48,7 @@ a{color:var(--accent)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* ---------- Layout ---------- */
-.app{height:100dvh;display:grid;grid-template-columns:var(--nav-w) var(--cola-w) minmax(0,1.15fr) minmax(0,1fr);overflow:hidden}
+.app{height:100dvh;padding-top:env(safe-area-inset-top,0px);display:grid;grid-template-columns:var(--nav-w) var(--cola-w) minmax(0,1.15fr) minmax(0,1fr);overflow:hidden}
 .nav{border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:4px;z-index:5}
 .nav .logo{color:var(--accent);margin-bottom:14px;display:grid;place-items:center;width:40px;height:40px}
 .nav button.nv{width:54px;padding:8px 0 6px;display:flex;flex-direction:column;align-items:center;gap:4px;border-radius:var(--radius);color:var(--ink-3);font-size:10.5px;font-weight:500;letter-spacing:.01em;transition:background .12s,color .12s}
@@ -365,13 +366,13 @@ pre.code{background:var(--bg);border:1px solid var(--line);border-radius:var(--r
 
 @media (max-width:1180px){
   /* los botones flotantes ya no tapan el contenido al hacer scroll: tienen una franja opaca detrás (no en el mapa) */
-  .app::before{content:"";position:fixed;z-index:3;top:0;left:0;right:0;height:calc(54px + env(safe-area-inset-top));background:var(--bg);border-bottom:1px solid var(--line-2);pointer-events:none}
+  .app::before{content:"";position:fixed;z-index:3;top:env(safe-area-inset-top,0px);left:0;right:0;height:54px;background:var(--bg);border-bottom:1px solid var(--line-2);pointer-events:none}
   .app[data-pane="map"]::before{display:none}
-  .nav .icon-btn{top:calc(9px + env(safe-area-inset-top))}
-  .panes{top:calc(9px + env(safe-area-inset-top))}
+  .nav .icon-btn{top:calc(9px + env(safe-area-inset-top,0px))}
+  .panes{top:calc(9px + env(safe-area-inset-top,0px))}
   .nav #acctbtn{left:12px}.nav #chatbtn{left:54px}.nav #theme{left:96px}.nav #install{left:138px}
-  .cola{padding-top:calc(54px + env(safe-area-inset-top))}
-  .colb{padding-top:calc(66px + env(safe-area-inset-top))}
+  .cola{padding-top:54px}
+  .colb{padding-top:66px}   /* la app ya empieza bajo la barra de estado (padding de .app): nada se desliza por debajo de ella */
 }
 @media (max-width:420px){.panes button{padding:6px 8px;font-size:12px}}
 
@@ -467,3 +468,8 @@ dialog#dlg>div.dlg-in{padding:18px 20px 20px;overflow-y:auto;max-height:calc(100
 dialog#dlg .dlg-in>p{margin:0 0 12px;line-height:1.5}
 dialog#dlg .dlg-in form[method="dialog"]{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 dialog#dlg .dlg-in canvas{max-width:100%;height:auto}
+
+/* iPhone/iPad en modo app: la app empieza bajo la barra de estado/isla (padding-top de .app) y en horizontal respeta los lados con muesca; sin rebote elástico de la página */
+html,body{overscroll-behavior:none}
+.cola,.colb,.chat .msgs{overscroll-behavior:contain}
+.app{padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}

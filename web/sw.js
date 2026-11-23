@@ -1,5 +1,5 @@
 // Service worker de Guilda: shell offline + datos de API con red primero y copia de respaldo.
-const V = "guilda-v8";
+const V = "guilda-v9";
 const SHELL = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/util.js", "/js/icons.js", "/js/charts.js", "/js/forecast.js", "/js/routes.js", "/js/radio.js", "/js/learn.js",
   "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
   "/fonts/ibm-plex-sans-latin-400-normal.woff2", "/fonts/ibm-plex-sans-latin-500-normal.woff2", "/fonts/ibm-plex-sans-latin-600-normal.woff2",
