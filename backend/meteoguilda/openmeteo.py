@@ -9,13 +9,17 @@ import httpx
 
 URL = "https://api.open-meteo.com/v1/forecast"
 ELEV_URL = "https://api.open-meteo.com/v1/elevation"
-# Previsión puntual: 8 modelos de centros distintos (más modelos = mejor contraste y confianza). Rutas y portátil usan CORE_MODELS
+# Previsión puntual: hasta 13 modelos de centros distintos (según la zona) (más modelos = mejor contraste y confianza). Rutas y portátil usan CORE_MODELS
 # (decenas de puntos por petición: se limita para respetar la cuota gratuita de Open-Meteo).
 CORE_MODELS = ["ecmwf_ifs025", "icon_seamless", "gfs_seamless", "meteofrance_seamless"]
-MODELS = CORE_MODELS + ["ecmwf_aifs025_single", "gem_seamless", "ukmo_seamless", "knmi_seamless"]
+MODELS = CORE_MODELS + ["ecmwf_aifs025_single", "gem_seamless", "ukmo_seamless", "knmi_seamless",
+                        # regionales de alta resolución (solo cubren su zona: fuera dan «sin datos» y no cuentan) y un global más (JMA)
+                        "dmi_seamless", "metno_seamless", "meteoswiss_icon_seamless", "italia_meteo_arpae_icon_2i", "jma_seamless"]
 MODEL_LABELS = {"ecmwf_ifs025": "ECMWF IFS", "ecmwf_aifs025_single": "ECMWF AIFS (IA)", "icon_seamless": "DWD ICON",
                 "gfs_seamless": "NOAA GFS", "meteofrance_seamless": "Météo-France (AROME/ARPEGE)", "gem_seamless": "ECCC GEM (Canadá)",
-                "ukmo_seamless": "UK Met Office", "knmi_seamless": "KNMI HARMONIE"}
+                "ukmo_seamless": "UK Met Office", "knmi_seamless": "KNMI HARMONIE", "dmi_seamless": "DMI HARMONIE (Dinamarca)",
+                "metno_seamless": "MET Noruega", "meteoswiss_icon_seamless": "MeteoSwiss ICON", "italia_meteo_arpae_icon_2i": "ARPAE ICON 2I (Italia)",
+                "jma_seamless": "JMA (Japón)"}
 # Variables de las que se guarda el valor de cada modelo (para el gráfico de contraste)
 DETAIL_VARS = ("temperature_2m", "precipitation", "wind_speed_10m", "wind_gusts_10m", "cloud_cover")
 VARS = ["temperature_2m", "precipitation", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",

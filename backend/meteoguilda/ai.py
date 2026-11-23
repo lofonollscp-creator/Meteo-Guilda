@@ -23,6 +23,7 @@ Redacta en español un pronóstico claro y honesto.
 Reglas estrictas:
 - Usa SOLO cifras presentes en los datos; no inventes ni calcules otras. Viento en km/h (campo *_kmh).
 - Si la confianza es baja o los modelos discrepan, dilo explícitamente.
+- Si hay `contraste`, compara lo que miden ahora las estaciones reales con la media de los modelos: si `acuerdo` no es «alto», dilo y da más peso a lo observado en las primeras horas.
 - Si las observaciones reales contradicen al modelo, indícalo.
 - No contradigas ni sustituyas avisos oficiales; recuerda consultarlos en actividades de riesgo.
 - Responde SOLO con un JSON: {"resumen": str, "riesgos": [str], "ventanas": [str], \
@@ -185,8 +186,9 @@ def build_context(summary: dict, stations: list[dict]) -> dict:
                      ("wind_gusts_10m", "racha_kmh"), ("cloud_cover", "nubes_pct")):
         if var in summary.get("por_modelo", {}):
             por_modelo[key] = {m: (kmh(s) if key in ("viento_kmh", "racha_kmh") else s) for m, s in summary["por_modelo"][var].items()}
-    return {"ubicacion": {"lat": summary["lat"], "lon": summary["lon"], "altitud_m": summary["elevation_m"]},
-            "modelos": summary["models"], "tramos": steps, "dias": dias, "estaciones_cercanas": stations, "por_modelo": por_modelo}
+    from .contraste import aplicar     # import local: contraste no importa ai
+    return aplicar({"ubicacion": {"lat": summary["lat"], "lon": summary["lon"], "altitud_m": summary["elevation_m"]},
+                    "modelos": summary["models"], "tramos": steps, "dias": dias, "estaciones_cercanas": stations, "por_modelo": por_modelo})
 
 
 def ai_view(context: dict, n: int = 16) -> dict:

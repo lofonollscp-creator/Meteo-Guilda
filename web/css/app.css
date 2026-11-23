@@ -934,3 +934,109 @@ body.chat-open .askstick{opacity:.35;pointer-events:none}
 .chat .tools .tl.bad{color:var(--bad)}
 .chat .tools a.tl.go{background:var(--ai-soft);color:var(--ai);box-shadow:none;font-weight:550}
 .chat .tools a.tl.go svg{stroke:currentColor;fill:none;width:12px;height:12px}
+
+/* ---------- Tarjetas de datos dentro de la respuesta ---------- */
+.chat .dcard{margin:12px 0 4px;background:var(--surface);border-radius:20px;padding:16px 18px;box-shadow:var(--ring),var(--sh)}
+.chat .dc-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.chat .dc-h a{font-size:12.5px;color:var(--ai);text-decoration:none;font-weight:550;white-space:nowrap}
+.chat .dc-h a svg{stroke:currentColor;fill:none;width:12px;height:12px;vertical-align:-1px}
+.chat .dc-main{display:flex;align-items:flex-end;gap:18px;margin-top:10px;flex-wrap:wrap}
+.chat .dc-main>b{font:650 40px/1 var(--sans);letter-spacing:-.04em}
+.chat .dc-main>div{display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--ink-2);padding-bottom:3px}
+.chat .dc-bars{display:flex;align-items:flex-end;gap:4px;height:40px;margin-top:14px}
+.chat .dc-bars i{flex:1;border-radius:5px;background:var(--line);min-height:6px}
+.chat .dc-bars i.on{background:var(--ai)}
+.chat .dc-days{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--ink) 7%,transparent)}
+.chat .dc-days div{display:flex;flex-direction:column;gap:1px;font-size:12px;color:var(--ink-3)}
+.chat .dc-days small{text-transform:capitalize;font-size:12px}
+.chat .dc-days b{font-size:15px;color:var(--ink);font-weight:600}
+.chat .dc-days em{font-style:normal;color:var(--ai)}
+.chat .dc-route{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:12px;margin-top:12px}
+.chat .dc-route b{display:block;font:650 20px/1.1 var(--sans);letter-spacing:-.02em}
+.chat .dc-route small{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.chat .dc-route .lv0 b{color:var(--ok)}.chat .dc-route .lv1 b{color:#b88a00}.chat .dc-route .lv2 b{color:var(--bad)}
+.chat .dc-route .lv0,.chat .dc-route .lv1,.chat .dc-route .lv2{grid-column:1/-1}
+.chat .dc-route .lv0 b,.chat .dc-route .lv1 b,.chat .dc-route .lv2 b{font-size:15px}
+
+/* ---------- Tarjetas v2: gráfico con pestañas y cursor, contraste con estaciones, acciones ---------- */
+.chat .dc-tabs{display:flex;gap:4px;margin-top:14px;background:var(--bg);border-radius:999px;padding:3px;width:max-content;max-width:100%}
+.chat .dc-tabs button{font-size:12px;padding:5px 12px;border-radius:999px;color:var(--ink-3);font-weight:550;min-height:28px}
+.chat .dc-tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--ring)}
+.chat .dc-plot{position:relative;margin-top:8px}
+.chat .dc-svg{width:100%;height:auto;display:block;touch-action:pan-y;overflow:visible}
+.chat .dc-svg .tk{font:10px var(--sans);fill:var(--ink-3)}
+.chat .dc-svg .pk{font:600 10.5px var(--sans);fill:var(--ink-2)}
+.chat .dc-svg .cur{stroke:var(--ai);stroke-width:1;stroke-dasharray:3 3;opacity:.7}
+.chat .dc-svg .cur-d{fill:var(--surface);stroke:var(--ai);stroke-width:2}
+.chat .dc-tip{min-height:16px;font-size:12px;color:var(--ink-2);text-align:right;margin-top:2px}
+.chat .dc-obs{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:14px;background:var(--bg);font-size:12.5px}
+.chat .dc-obs b{display:block;font-weight:600;color:var(--ink)}
+.chat .dc-obs small{display:block;color:var(--ink-3);margin-top:1px;line-height:1.35}
+.chat .dc-obs .dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-top:5px}
+.chat .dc-obs.medio .dot{background:#d9a300}.chat .dc-obs.bajo .dot{background:var(--bad)}
+.chat .dc-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.chat .dc-acts button,.chat .dc-acts .done{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:7px 13px;border-radius:999px;background:var(--bg);color:var(--ink-2);font-weight:550;min-height:34px}
+.chat .dc-acts button:hover{background:var(--ai-soft);color:var(--ai)}
+.chat .dc-acts button:disabled{opacity:.7}
+.chat .dc-acts button.pri{background:var(--ai);color:#fff}
+.chat .dc-acts .done{color:var(--ok);background:transparent;padding-left:0}
+.chat .dc-acts svg,.chat .dc-acts .done svg{stroke:currentColor;fill:none;width:14px;height:14px}
+.chat .dcard.act .dc-q{margin:8px 0 0;font-size:14px;line-height:1.45}
+
+/* ---------- Modo Live (voz) ---------- */
+.chat .chat-mic{flex:none;width:46px;height:46px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--ai-soft);color:var(--ai)}
+.chat .chat-mic svg{stroke:currentColor;fill:none}
+.chat .live{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(14px);text-align:center}
+.chat .live-x{position:absolute;top:calc(14px + var(--sat));right:16px}
+.chat .live-c{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:420px}
+.chat .orb{position:relative;width:132px;height:132px;border-radius:50%;background:var(--aig);box-shadow:0 18px 50px rgba(88,70,217,.35);display:grid;place-items:center;transition:transform .2s}
+.chat .orb i{position:absolute;inset:0;border-radius:50%;border:2px solid var(--ai);opacity:0}
+.chat .orb.st-listening{animation:orb-b 2.2s ease-in-out infinite}
+.chat .orb.st-listening i{animation:orb-r 2.2s ease-out infinite}.chat .orb.st-listening i:nth-child(2){animation-delay:.7s}.chat .orb.st-listening i:nth-child(3){animation-delay:1.4s}
+.chat .orb.st-thinking{animation:orb-s 1.1s linear infinite;filter:saturate(.8)}
+.chat .orb.st-speaking{animation:orb-v .7s ease-in-out infinite}
+.chat .orb.st-paused,.chat .orb.st-error{filter:grayscale(.6);opacity:.7}
+@keyframes orb-b{50%{transform:scale(1.06)}}
+@keyframes orb-r{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.7);opacity:0}}
+@keyframes orb-s{to{transform:rotate(360deg)}}
+@keyframes orb-v{0%,100%{transform:scale(1)}30%{transform:scale(1.08)}60%{transform:scale(.97)}}
+@media (prefers-reduced-motion:reduce){.chat .orb,.chat .orb i{animation:none!important}}
+.chat .live-st{margin:0;font:600 17px var(--sans);letter-spacing:-.01em}
+.chat .live-cap{margin:0;min-height:48px;font-size:15px;color:var(--ink-2);line-height:1.4}
+.chat .live-note{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));left:24px;right:24px;margin:0;font-size:11.5px;color:var(--ink-3)}
+
+/* ---------- Ficha de repetidor: cabecera estable, chips de ajustes y acciones arriba ---------- */
+.rsel .rs-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:nowrap}
+.rsel .rs-head>div:first-child{min-width:0}
+.rsel .rs-head .icon-btn{flex:none}
+.rsel .rchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.rsel .rchip{font-size:12.5px;padding:4px 11px;border-radius:999px;background:var(--surface);box-shadow:var(--ring);color:var(--ink-2);font-weight:500;white-space:nowrap}
+.rsel .rs-acts{margin-top:14px;flex-wrap:wrap;gap:8px}
+
+/* ---------- Diálogo de la tarjeta QSL ---------- */
+.qsl-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+.qsl-s{margin:2px 0 0;font-size:13px;color:var(--ink-3)}
+.qsl-acts{margin-top:14px;gap:8px;flex-wrap:wrap}
+dialog#dlg .qsl-acts .btn:focus-visible{outline-offset:2px}
+
+/* ---------- Cabecera móvil: ajustes y tema a la izquierda, título de la sección y selector Detalle/Mapa a la derecha ---------- */
+@media (max-width:1180px){
+  .nav #chatbtn{display:none}                              /* el asistente ya tiene su barra «Pregunta…» fija sobre las pestañas */
+  .nav #acctbtn{left:12px}.nav #theme{left:56px}.nav #install{left:100px}
+  .app::after{position:fixed;z-index:4;top:calc(var(--sat) + 17px);left:104px;font:650 16px var(--sans);letter-spacing:-.02em;color:var(--ink);pointer-events:none;content:"Meteo Guilda"}
+  body[data-section="forecast"] .app::after{content:"Previsión"}
+  body[data-section="routes"] .app::after{content:"Rutas"}
+  body[data-section="radio"] .app::after{content:"Radio"}
+  body[data-section="learn"] .app::after{content:"Aprende"}
+  .app:has(#install:not([hidden]))::after{display:none}
+}
+@media (max-width:340px){.nav #acctbtn{left:8px}.nav #theme{left:44px}.nav #install{left:80px}.app::after{left:88px;font-size:15px}}
+
+/* ---------- Contraste modelos vs. estaciones (vista de previsión) ---------- */
+.contr{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:16px;background:var(--bg);margin:0 0 12px;font-size:13.5px}
+.contr b{display:block;font-weight:600}
+.contr small{display:block;color:var(--ink-3);margin-top:2px;line-height:1.4;font-size:12.5px}
+.contr .dot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--ok);margin-top:6px}
+.contr.medio .dot{background:#d9a300}.contr.bajo .dot{background:var(--bad)}
+.chat .live-c{gap:38px}
+.rsel a.btn{text-decoration:none}

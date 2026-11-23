@@ -172,7 +172,15 @@ async function card(r) {
     x.fillStyle = "#74808a"; x.font = '600 17px "Plex Sans", sans-serif'; x.fillText(k, cx + 18, cy + 34); x.fillStyle = "#e7ecef"; x.font = '500 38px "Plex Mono", monospace'; x.fillText(String(v).slice(0, 12), cx + 18, cy + 84); });
   x.fillStyle = "#a6b1ba"; x.font = 'italic 500 30px Newsreader, serif'; x.fillText(`Gracias por el QSO${r.name ? ", " + r.name : ""}. 73`, 60, 720);
   x.textAlign = "right"; x.font = '400 20px "Plex Sans", sans-serif'; x.fillText("radio.guildawork.com", 1140, 720);
-  ctx.openDialog(`<h2>Tarjeta QSL</h2><canvas id="cvp" style="width:100%;border-radius:10px"></canvas><div class="row" style="margin-top:12px"><button class="btn" id="cvdl" type="button">${icon("download", 14)} Descargar PNG</button><form method="dialog"><button class="btn ghost">Cerrar</button></form></div>`);
+  const fname = `qsl-${r.call}-${d.toISOString().slice(0, 10)}.png`, canShare = !!navigator.canShare && navigator.canShare({ files: [new File([""], fname, { type: "image/png" })] });
+  ctx.openDialog(`<div class="qsl-h"><div><h2 style="margin:0">Tarjeta QSL</h2><p class="qsl-s">${esc(r.call)} · ${d.toISOString().slice(0, 10)} · ${esc(r.band || "")} ${esc(r.mode || "")}</p></div><form method="dialog"><button class="icon-btn" aria-label="Cerrar">${icon("x")}</button></form></div>
+    <canvas id="cvp" style="width:100%;border-radius:14px"></canvas>
+    <div class="row qsl-acts"><button class="btn" id="cvdl" type="button">${icon("download", 14)} Descargar PNG</button>${canShare ? `<button class="btn ghost" id="cvsh" type="button">${icon("share", 14)} Compartir</button>` : ""}<button class="btn ghost" id="cvcp" type="button">${icon("link", 14)} Copiar imagen</button></div>
+    <p class="qsl-s" id="cvmsg" style="margin:8px 0 0">Imagen de 1200 × 760 px, lista para enviar o imprimir.</p>`);
+  document.activeElement?.blur?.();
   const t = $("#cvp"); t.width = 1200; t.height = 760; t.getContext("2d").drawImage(cv, 0, 0);
-  $("#cvdl").addEventListener("click", () => cv.toBlob((b) => { const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(b), download: `qsl-${r.call}-${d.toISOString().slice(0, 10)}.png` }); a.click(); URL.revokeObjectURL(a.href); }));
+  const blob = () => new Promise((ok) => cv.toBlob(ok));
+  $("#cvdl").addEventListener("click", async () => { const b = await blob(), a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(b), download: fname }); a.click(); URL.revokeObjectURL(a.href); });
+  $("#cvsh")?.addEventListener("click", async () => { try { await navigator.share({ files: [new File([await blob()], fname, { type: "image/png" })], title: `QSL ${r.call}` }); } catch {} });
+  $("#cvcp").addEventListener("click", async () => { const m = $("#cvmsg"); try { await navigator.clipboard.write([new ClipboardItem({ "image/png": await blob() })]); m.textContent = "Imagen copiada al portapapeles."; } catch { m.textContent = "Tu navegador no permite copiar imágenes; usa Descargar."; } });
 }

@@ -184,20 +184,24 @@ async function pick(id, fly) {
   rep.sel = r;
   const d = $("#rdetail"); if (!d) return;
   const tx = r.freq_mhz + (r.shift_khz || 0) / 1000, at = here(), dist = distKm(at, r), bm = bmLink(r);
-  d.innerHTML = `<div class="card rsel"><div class="row between" style="align-items:flex-start"><div><div class="f big" style="font-size:30px">${fmtF(r.freq_mhz)} <small style="font-size:14px">MHz</small></div>
+  const shift = (k) => (k ? (k > 0 ? "+" : "−") + (Math.abs(k) >= 1000 ? `${nf.format(Math.abs(k) / 1000)} MHz` : `${Math.abs(k)} kHz`) : "simplex");
+  const chip = (t) => `<span class="rchip">${t}</span>`;
+  d.innerHTML = `<div class="card rsel"><div class="rs-head"><div><div class="f big" style="font-size:30px">${fmtF(r.freq_mhz)} <small style="font-size:14px">MHz</small></div>
     <div class="meta"><b>${esc(r.callsign || "")}</b> · ${esc(r.city || r.name)} · locator ${toLocator(r.lat, r.lon)}</div></div>
     <button class="icon-btn" id="rclose" aria-label="Cerrar ficha">${icon("x")}</button></div>
-    <div class="grid2" style="margin-top:12px"><div>
+    <div class="rchips">${chip(esc(r.mode) + (r.network ? ` · ${esc(r.network)}` : ""))}${chip("TX " + fmtF(tx) + " MHz")}${chip("Desplaz. " + shift(r.shift_khz))}${r.tone_hz ? chip("CTCSS " + r.tone_hz + " Hz") : ""}${r.color_code != null ? chip("CC " + r.color_code) : ""}${chip(nf.format(dist) + " km " + compass(bearing(at, r)))}</div>
+    <div class="row rs-acts"><button class="btn sm" id="rcalc" type="button">${icon("antenna", 14)} ${r.has_coverage ? "Ver cobertura" : "Calcular cobertura"}</button>
+      <button class="btn ghost sm" id="rcopy" type="button">${icon("code", 14)} Copiar ajustes</button>
+      ${bm ? `<a class="btn ghost sm" href="${bm}" target="_blank" rel="noopener">${icon("globe", 14)} BrandMeister</a>` : ""}${r.website ? `<a class="btn ghost sm" href="${esc(r.website)}" target="_blank" rel="noopener">${icon("link", 14)} Web</a>` : ""}</div>
+    <p class="empty" id="rmsg" style="margin:8px 0 0"></p>
+    <div class="grid2" style="margin-top:8px"><div>
       <div class="kv"><span>Modo</span><span>${esc(r.mode)}${r.network ? ` · ${esc(r.network)}` : ""}</span></div>
       <div class="kv"><span>Tú transmites en</span><span>${fmtF(tx)} MHz</span></div>
-      <div class="kv"><span>Desplazamiento</span><span>${r.shift_khz ? (r.shift_khz > 0 ? "+" : "−") + Math.abs(r.shift_khz) + " kHz" : "simplex"}</span></div>
+      <div class="kv"><span>Desplazamiento</span><span>${shift(r.shift_khz)}</span></div>
       ${r.tone_hz ? `<div class="kv"><span>Subtono CTCSS</span><span>${r.tone_hz} Hz</span></div>` : ""}${r.color_code != null ? `<div class="kv"><span>Color code</span><span>${r.color_code}</span></div>` : ""}</div><div>
       ${r.dmr_id ? `<div class="kv"><span>ID DMR</span><span>${r.dmr_id}</span></div>` : ""}${r.power_w ? `<div class="kv"><span>Potencia</span><span>${r.power_w} W</span></div>` : ""}
       <div class="kv"><span>Altura antena</span><span>${nf.format(r.height_m || 10)} m</span></div><div class="kv"><span>Distancia a ${esc(at.name)}</span><span>${nf.format(dist)} km ${compass(bearing(at, r))}</span></div>
-      <div class="kv"><span>Fuente</span><span>${esc(r.source || "")}</span></div></div></div>
-    <div class="row" style="margin-top:12px"><button class="btn sm" id="rcalc" type="button">${icon("antenna", 14)} ${r.has_coverage ? "Ver cobertura" : "Calcular cobertura"}</button>
-      ${bm ? `<a class="btn ghost sm" href="${bm}" target="_blank" rel="noopener">${icon("globe", 14)} BrandMeister</a>` : ""}${r.website ? `<a class="btn ghost sm" href="${esc(r.website)}" target="_blank" rel="noopener">${icon("link", 14)} Web</a>` : ""}
-      <button class="btn ghost sm" id="rcopy" type="button">${icon("code", 14)} Copiar ajustes</button></div><p class="empty" id="rmsg" style="margin-top:8px"></p></div>`;
+      <div class="kv"><span>Fuente</span><span>${esc(r.source || "")}</span></div></div></div></div>`;
   $("#rclose").addEventListener("click", () => { rep.sel = null; location.hash = "#/radio/repetidores"; });
   $("#rcalc").addEventListener("click", async () => {
     $("#rmsg").textContent = "Calculando línea de vista con el relieve (unos segundos)…";

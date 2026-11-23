@@ -3,6 +3,8 @@ import { $, $$, api, esc, LS } from "./util.js";
 import { icon } from "./icons.js";
 import { md } from "./md.js";
 import { aiOn, me, onChange } from "./me.js";
+import { dataCard, accion, bindCards } from "./cards.js";
+import { liveSupported, startLive } from "./voice.js";
 
 const json = { "content-type": "application/json" };
 let ctx, el, chats = [], curId = null, busy = false, openAccount, full = LS.get("mg-chat-full", false), srcSeq = 0;
@@ -34,7 +36,7 @@ const HOLD = { home: "Pregunta sobre el tiempo, una ruta o la radio…", forecas
   radio: "Pregunta sobre radio…", ventanas: "Pregunta cuándo conviene operar…", repetidores: "Pregunta qué repetidor te conviene…", propagacion: "Pregunta por las condiciones de hoy…",
   satelites: "Pregunta por un satélite o un paso…", portatil: "Pregunta por una activación SOTA o POTA…", qsl: "Pregunta por tu cuaderno…", herramientas: "Pide un cálculo: «dipolo para 7,1 MHz»…",
   learn: "¿No lo entiendes? Pregúntale a Guilda…" };
-const MODELS = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France", gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI" };
+const MODELS = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France", gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI", dmi_seamless: "DMI", metno_seamless: "MET Noruega", meteoswiss_icon_seamless: "MeteoSwiss", italia_meteo_arpae_icon_2i: "ARPAE (Italia)", jma_seamless: "JMA" };
 
 const place = () => ctx.place?.() || null;
 function where() {   // «dónde estoy» en la app: sección + subsección para elegir sugerencias y textos
@@ -134,8 +136,9 @@ function paint() {
       <div class="msgs" id="chat-msgs" aria-live="polite"></div>
       <div class="hints" id="chat-hints"></div>
       <form id="chat-form"><textarea id="chat-in" rows="1" maxlength="1500" placeholder="Pregunta lo que quieras…" aria-label="Mensaje"></textarea>
+        ${liveSupported() ? `<button class="chat-mic" type="button" id="chat-mic" aria-label="Hablar con Guilda (modo Live)" title="Modo Live: charla por voz">${icon("mic", 18)}</button>` : ""}
         <button class="chat-send" type="submit" aria-label="Enviar" id="chat-send">${icon("up", 18)}</button></form>
-      <p class="chat-foot">Modelo gratuito · cada cifra se comprueba contra los datos · <a href="#" id="chat-cfg2">Ajustes de IA</a></p></div>
+      <p class="chat-foot">Modelo gratuito · puede equivocarse; los avisos oficiales mandan · <a href="#" id="chat-cfg2">Ajustes de IA</a></p></div>
     <div class="chat-src" id="chat-src" aria-label="Fuentes"></div>`;
   $("#chat-x", el).onclick = () => toggle(false);
   const cfg = (e) => { e.preventDefault(); toggle(false); openAccount("ia"); };
@@ -147,6 +150,8 @@ function paint() {
   ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(120, ta.scrollHeight) + "px"; });
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#chat-form", el).requestSubmit(); } });
   $("#chat-form", el).addEventListener("submit", (e) => { e.preventDefault(); const v = ta.value.trim(); if (v && !busy) { ta.value = ""; ta.style.height = "auto"; ask(v); } });
+  const mic = $("#chat-mic", el);
+  if (mic) mic.onclick = () => { if (!$(".live", el)) startLive({ root: el, ask: (t) => ask(t), onClose: () => $("#chat-in", el)?.focus() }); };
   drawHist(); drawMsgs(); if (full) loadSources();
 }
 function drawHist() {
@@ -170,7 +175,7 @@ function bubble(m, i, last) {
   if (m.role === "user") return `<div class="m u">${esc(m.content)}</div>`;
   const foot = !m.err && m.model !== undefined ? `<div class="mf"><span class="ok-chk">${icon("check", 13)} Con datos reales</span><span class="mf-r"><small>${esc(shortModel(m.model))}</small>
     <button type="button" class="copy" data-copy="${i}" aria-label="Copiar respuesta" title="Copiar">${icon("link", 13)} Copiar</button>${last ? `<button type="button" class="copy" data-regen="1" aria-label="Volver a generar" title="Volver a generar">${icon("refresh", 13)} Regenerar</button>` : ""}</span></div>` : "";
-  return `<div class="m a${m.err ? " err" : ""}">${AV()}<div class="mb">${m.err ? `<p>${esc(m.content)}</p>` : md(m.content)}${toolRow(m)}${foot}</div></div>`;
+  return `<div class="m a${m.err ? " err" : ""}">${AV()}<div class="mb">${m.err ? `<p>${esc(m.content)}</p>` : md(m.content)}${(m.cards || []).map((c, k) => dataCard(c, i, k)).join("")}${toolRow(m)}${foot}</div></div>`;
 }
 function drawMsgs() {
   const box = $("#chat-msgs", el); if (!box) return;
@@ -181,13 +186,22 @@ function drawMsgs() {
   const hints = $("#chat-hints", el);
   hints.innerHTML = list.length && list.at(-1).role === "assistant" && !list.at(-1).err ? (SUG[where()] || SUG.radio).slice(0, 3).map((s) => `<button type="button">${esc(s)}</button>`).join("") : "";
   hints.onclick = (e) => { const b = e.target.closest("button"); if (b) ask(b.textContent); };
+  if (!box._cards) { box._cards = true; bindCards(box, (m, k) => msgs()[m]?.cards?.[k]); }
   box.onclick = async (e) => {
-    const q = e.target.closest("[data-q]"), cp = e.target.closest("[data-copy]"), rg = e.target.closest("[data-regen]");
+    const q = e.target.closest("[data-q]"), cp = e.target.closest("[data-copy]"), rg = e.target.closest("[data-regen]"), ac = e.target.closest("[data-act]");
+    if (ac && ac.dataset.act === "ask") return ask(ac.dataset.q);
+    if (ac) {
+      const card = ac.closest(".dcard"), c = msgs()[+card.dataset.m]?.cards?.[+card.dataset.k]; if (!c) return;
+      const t = accion(ac.dataset.act, c); if (t) ctx.toast?.(t);
+      if (c.tipo === "accion") { c.hecho = true; save(); drawMsgs(); } else { ac.disabled = true; ac.innerHTML = `${icon("check", 14)} Hecho`; }
+      return;
+    }
     if (q) return ask(q.dataset.q);
     if (rg && !busy) { const l = msgs(); while (l.length && l.at(-1).role === "assistant") l.pop(); const u = l.pop(); if (u) ask(u.content); return; }
     if (cp) { try { await navigator.clipboard.writeText(msgs()[+cp.dataset.copy].content); cp.textContent = "Copiado"; setTimeout(() => (cp.innerHTML = `${icon("link", 13)} Copiar`), 1500); } catch {} }
   };
-  box.scrollTop = box.scrollHeight;
+  const lastA = list.length > 1 && list.at(-1).role === "assistant" ? box.querySelector(".m.a:last-of-type") : null;   // respuesta larga: se lee desde el principio
+  if (lastA) { box.scrollTop = 0; box.scrollTop = lastA.getBoundingClientRect().top - box.getBoundingClientRect().top - 12; } else box.scrollTop = box.scrollHeight;
 }
 async function loadSources() {
   const box = $("#chat-src", el), pl = place(); if (!box) return;
@@ -206,7 +220,7 @@ async function loadSources() {
   } catch { if (my === srcSeq && $("#chat-src", el)) box.innerHTML = '<h2>Lo que he usado</h2><p class="empty" style="margin-top:16px">No se pudieron cargar las fuentes ahora.</p>'; }
 }
 async function ask(text) {
-  if (busy) return;
+  if (busy) return null;
   if (!cur()) newChat();
   const c = cur(); busy = true; $("#chat-send", el)?.setAttribute("disabled", "");
   c.m.push({ role: "user", content: text }); if (c.m.filter((x) => x.role === "user").length === 1) { c.t = titleOf(c.m); c.ctx = place()?.name; }
@@ -220,8 +234,9 @@ async function ask(text) {
     if (r.status === 401 && r.headers.get("x-auth") === "login") { location.href = "/api/auth/login?return_to=" + encodeURIComponent(location.pathname + location.hash); return; }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : `Error ${r.status}`);
-    c.m.push({ role: "assistant", content: d.answer, model: d.model, tools: d.herramientas || [], places: d.lugares || [] });
+    c.m.push({ role: "assistant", content: d.answer, model: d.model, tools: d.herramientas || [], places: d.lugares || [], cards: d.tarjetas || [] });
   } catch (e) { c.m.push({ role: "assistant", content: e.message, err: true }); }
   c.m = c.m.slice(-30); save();
   busy = false; drawMsgs(); drawHist(); $("#chat-send", el)?.removeAttribute("disabled");
+  const lastM = c.m.at(-1); return lastM && !lastM.err ? lastM.content : null;
 }

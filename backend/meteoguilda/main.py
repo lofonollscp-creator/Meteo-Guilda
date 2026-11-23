@@ -110,7 +110,7 @@ async def build_forecast(http: httpx.AsyncClient, lat: float, lon: float, force:
         if hit and not force and time.time() - hit[0] < SUMMARY_TTL:
             return hit[1]
         summary = await get_summary(http, lat, lon, force)
-        ctx = ai.build_context(summary, await nearby_stations(lat, lon, http=http))
+        ctx = ai.build_context(summary, await nearby_stations(lat, lon, limit_n=12, http=http))
         out = {"pronostico": ai.rules_forecast(ctx).model_dump(), "origen": "reglas", "modelo_ia": None, "datos": ctx,
                "generado": int(time.time())}
         _forecasts[k] = (time.time(), out)
@@ -411,7 +411,7 @@ numéricos y observaciones reales de estaciones APRS, METAR y XEMA), rutas con e
 Formato: puedes usar Markdown sencillo (**negrita** para lo importante, listas con guiones, títulos con ## solo si la respuesta es larga, tablas pequeñas para comparar horas). Nada de HTML.
 Reglas:
 - Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar» o los resultados de las herramientas; si no tienes datos del lugar, búscalo tú con las herramientas por su nombre. No inventes cifras.
-- Si la confianza es baja o los modelos discrepan, dilo. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.
+- Si la confianza es baja o los modelos discrepan, dilo. Si hay `contraste`, mira si lo que miden las estaciones reales ahora encaja con los modelos y, si no, da más peso a lo observado en las primeras horas. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.
 - En radioafición puedes explicar conceptos y usar los repetidores del bloque de datos si aparece; no inventes frecuencias ni indicativos.
 - Si la persona dice «aquí», «donde estoy» o «mi ubicación», usa el bloque «Datos de Mi ubicación» (si no existe, pídele que la active con el botón «Mi ubicación» de la app).
 - Si te piden algo ajeno a la meteorología, la ruta o la radio, responde con brevedad y vuelve al tema."""
@@ -504,7 +504,8 @@ async def assistant(request: Request, req: ChatReq):
         if not llamadas or ultima:
             respuesta = assistant_tools.limpiar(text)
             if respuesta:
-                return {"answer": respuesta, "model": model, "herramientas": assistant_tools.resumen_uso(usadas), "lugares": env.usados[:6]}
+                return {"answer": respuesta, "model": model, "herramientas": assistant_tools.resumen_uso(usadas), "lugares": env.usados[:6],
+                        "tarjetas": [r["tarjeta"] for r in usadas if r.get("tarjeta")][:3]}
             raise HTTPException(502, "La IA no ha respondido")
         res = await assistant_tools.ejecutar_todas(env, llamadas)
         usadas += res
@@ -516,7 +517,7 @@ async def assistant(request: Request, req: ChatReq):
 async def raw(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
     """Datos de modelos y balizas SIN texto de IA (para clientes MCP y modelos externos)."""
     limit(request, "point")
-    ctx = ai.build_context(await get_summary(H(request), lat, lon), await nearby_stations(lat, lon, http=H(request)))
+    ctx = ai.build_context(await get_summary(H(request), lat, lon), await nearby_stations(lat, lon, limit_n=12, http=H(request)))
     return {"datos": ctx, "unidades": {"viento": "km/h", "temp": "°C", "lluvia": "mm/3h", "nieve": "cm/3h",
                                          "isocero": "m", "presion": "hPa", "cape": "J/kg"},
             "nota": "Media entre los modelos de 'modelos' (ECMWF IFS y AIFS, DWD ICON, NOAA GFS, Météo-France, ECCC GEM, UK Met Office, KNMI); "

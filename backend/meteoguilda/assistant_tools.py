@@ -42,6 +42,8 @@ CATALOGO: dict[str, tuple[str, str]] = {
     "astro": ("Sol y luna: orto, ocaso, fase.", "lugar"),
     "portatil": ("Mejor momento para operar en portátil al aire libre.", "lugar"),
     "ventanas_radio": ("Ventanas para operar en radio en un lugar.", "lugar, modo (fijo|portatil)"),
+    "guardar_lugar": ("Propone guardar un lugar en los favoritos de la persona (ella confirma con un botón).", "lugar"),
+    "usar_como_mi_ubicacion": ("Propone fijar un lugar como «Mi ubicación» (ella confirma con un botón).", "lugar"),
     "locator": ("Locator Maidenhead de un lugar, o coordenadas de un locator.", "lugar o locator"),
 }
 
@@ -164,6 +166,25 @@ def _lug(env: Entorno, p: dict) -> dict:
     return d
 
 
+def _m(x, k="mean"):
+    return x.get(k) if isinstance(x, dict) else x
+
+
+def tarjeta_prevision(p: dict, datos: dict) -> dict | None:
+    """Datos estructurados para pintar la tarjeta en el chat (la IA no los toca: salen tal cual de los modelos)."""
+    pasos = datos.get("tramos") or []
+    if not pasos:
+        return None
+    a = pasos[0]
+    return {"tipo": "prevision", "lugar": p["name"], "lat": round(p["lat"], 4), "lon": round(p["lon"], 4),
+            "ahora": {"temp": _m(a.get("temp_c")), "viento": _m(a.get("viento_kmh")), "dir": a.get("viento_dir_txt"), "lluvia": _m(a.get("lluvia_mm")),
+                      "nubes": _m(a.get("nubes_pct")), "confianza": a.get("confianza")},
+            "serie": [_m(t.get("temp_c")) for t in pasos[:12]],
+            "lluvia": [_m(t.get("lluvia_mm")) for t in pasos[:12]], "viento_serie": [_m(t.get("viento_kmh")) for t in pasos[:12]],
+            "horas": [t.get("time") for t in pasos[:12]], "modelos": len(datos.get("modelos") or []), "contraste": datos.get("contraste"),
+            "dias": [{k: d.get(k) for k in ("fecha", "temp_min_c", "temp_max_c", "lluvia_mm", "racha_max_kmh")} for d in (datos.get("dias") or [])[:4]]}
+
+
 async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
     """Ejecuta una herramienta; devuelve {nombre, lugar?, ok, resultado|error}."""
     out: dict = {"nombre": nombre}
@@ -199,6 +220,8 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             r = await _api(env, "POST", "/api/route", json=body)
             r = {k: r.get(k) for k in ("modo", "distancia_km", "duracion_min", "ascenso_m", "descenso_m", "salida", "nivel_global", "nivel_texto", "ventanas", "muestras")}
             r["muestras"] = [{k: m.get(k) for k in ("d_km", "ele", "t", "nivel", "motivos")} for m in (r.get("muestras") or [])][:8]
+            out["tarjeta"] = {"tipo": "ruta", "lugar": out["lugar"], "km": r.get("distancia_km"), "min": r.get("duracion_min"), "asc": r.get("ascenso_m"),
+                              "desc": r.get("descenso_m"), "nivel": r.get("nivel_global"), "texto": r.get("nivel_texto"), "modo": r.get("modo")}
             return {**out, "ok": True, "resultado": r}
         # resto: un solo lugar
         q = a.get("lugar") or a.get("consulta") or a.get("locator")
@@ -211,6 +234,7 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
         if nombre == "prevision":
             d = await _api(env, "GET", "/api/forecast", params=c)
             r = {"lugar": p["name"], "datos": ai.ai_view(d["datos"], 12)}
+            out["tarjeta"] = tarjeta_prevision(p, d["datos"])
         elif nombre == "avisos":
             r = await _api(env, "GET", "/api/avisos", params=c)
         elif nombre == "aire":
@@ -241,6 +265,9 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             r = await _api(env, "GET", "/api/radio/ventanas", params={**c, "modo": "portatil" if a.get("modo") == "portatil" else "fijo"})
         elif nombre == "locator":
             r = await _api(env, "GET", "/api/locator", params=c)
+        elif nombre in ("guardar_lugar", "usar_como_mi_ubicacion"):
+            out["tarjeta"] = {"tipo": "accion", "accion": "favorito" if nombre == "guardar_lugar" else "ubicacion", "lugar": p["name"], "lat": round(p["lat"], 4), "lon": round(p["lon"], 4)}
+            r = {"propuesta": p["name"], "nota": "Se le ha mostrado un botón de confirmación; no se guarda nada hasta que lo pulse. Díselo así."}
         else:
             raise ErrorHerramienta("Herramienta desconocida")
         return {**out, "ok": True, "resultado": r}
@@ -269,7 +296,7 @@ ETIQUETAS = {"buscar_lugar": "Búsqueda de lugar", "prevision": "Previsión de m
              "mar": "Estado del mar", "comparar": "Comparación", "actividad": "Ventanas de actividad", "ruta": "Ruta con meteo",
              "observaciones": "Estaciones cercanas", "propagacion": "Propagación VHF", "condiciones_hf": "Condiciones HF", "repetidores": "Repetidores",
              "satelites": "Pasos de satélite", "astro": "Sol y luna", "portatil": "Operación portátil", "ventanas_radio": "Ventanas de radio",
-             "locator": "Locator"}
+             "locator": "Locator", "guardar_lugar": "Guardar lugar", "usar_como_mi_ubicacion": "Mi ubicación"}
 
 
 def resumen_uso(res: list[dict]) -> list[dict]:

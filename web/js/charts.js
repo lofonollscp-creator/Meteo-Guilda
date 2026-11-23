@@ -219,7 +219,7 @@ export function renderStrip(host, items, rows, axis) {
 }
 
 /* ---------- Contraste de modelos: una línea por modelo + la media ---------- */
-export const MODEL_COLORS = ["#2a6fdb", "#d9482b", "#2e9e5b", "#8f55c7", "#a1662a", "#d6489c", "#12a3b5", "#a4a31c"];
+export const MODEL_COLORS = ["#2a6fdb", "#d9482b", "#2e9e5b", "#8f55c7", "#a1662a", "#d6489c", "#12a3b5", "#a4a31c", "#e08a00", "#5b6b7a", "#0b7a4b", "#b3258f", "#4f46e5"];
 /**
  * series: [{id, label, color, vals[]}], mean[]; opts: {unit, fmt(v), H, ticks, hidden:Set(id), zero}. Devuelve nada; redibuja en host.
  */

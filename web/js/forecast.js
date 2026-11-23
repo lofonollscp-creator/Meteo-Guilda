@@ -11,7 +11,7 @@ const saveFavs = () => { LS.set("mg-favs", favs); pushSettings(); };
 const favKey = (lat, lon) => slug(lat, lon);
 const findFav = (lat, lon) => favs.find((f) => f.key === favKey(lat, lon));
 const MODEL_NAMES = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS (IA)", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France",
-  gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI" };
+  gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI", dmi_seamless: "DMI", metno_seamless: "MET Noruega", meteoswiss_icon_seamless: "MeteoSwiss", italia_meteo_arpae_icon_2i: "ARPAE (Italia)", jma_seamless: "JMA" };
 // Orden de «Mis lugares»: manual (el que dejas con ↑↓), A–Z, más cálido ahora o más cerca de tu QTH. Los fijados van siempre arriba.
 const SORTS = [["manual", "Mi orden"], ["az", "A–Z"], ["temp", "Más cálido"], ["cerca", "Más cerca"]];
 let favSort = LS.get("mg-favsort", "manual"), favEdit = false;
@@ -140,6 +140,12 @@ function drawPins() {
   if (hasQth()) ctx.marker(getQth().lon, getQth().lat, { label: qthLabel(), cls: "fav", onClick: () => (location.hash = qthHash()) });
   if (sel?.kind === "point" && !findFav(sel.lat, sel.lon)) ctx.marker(sel.lon, sel.lat, { label: sel.name, cls: "pt on" });
 }
+// el asistente guarda lugares con un evento (confirmado antes por la persona con un botón)
+addEventListener("mg:fav", (e) => {
+  const it = e.detail; if (!it || it.lat == null || findFav(it.lat, it.lon)) return;
+  favs.push({ key: favKey(it.lat, it.lon), name: it.name, sub: it.sub || "", lat: it.lat, lon: it.lon });
+  saveFavs(); try { renderFavs(); drawPins(); loadFavSnaps(); } catch {}
+});
 function toggleFav(item, pin) {
   const key = favKey(item.lat, item.lon), i = favs.findIndex((f) => f.key === key);
   if (pin === undefined) { if (i >= 0) favs.splice(i, 1); else favs.push({ key, ...item }); }
@@ -349,6 +355,8 @@ function render(d) {
     <div class="card sunbox" id="skybox"><h3>${icon("sun", 16)} Sol y Luna</h3><div class="skeleton" style="height:100px"></div></div></div></section>
 
   <section class="sec"><div class="label">Observaciones reales <em>${srcs.length ? esc(srcs.join(" · ")) : "APRS · METAR · XEMA"}</em></div>
+    ${c.contraste ? `<div class="contr ${esc(c.contraste.acuerdo)}"><span class="dot"></span><div><b>${c.contraste.acuerdo === "alto" ? "Las estaciones coinciden con los modelos" : c.contraste.acuerdo === "medio" ? "Ligera desviación entre estaciones y modelos" : "Las estaciones discrepan de los modelos"}</b>
+      <small>${[c.contraste.temp && `Temperatura: ${c.contraste.temp.obs}° medidos · ${c.contraste.temp.modelo}° previstos`, c.contraste.viento && `viento: ${c.contraste.viento.obs} · ${c.contraste.viento.modelo} km/h`].filter(Boolean).join(" · ")} · ${c.contraste.estaciones} ${c.contraste.estaciones === 1 ? "estación" : "estaciones"} a ≤ 30 km. ${esc(c.contraste.nota)}</small></div></div>` : ""}
     ${c.estaciones_cercanas?.length ? `<div class="tablewrap"><table><thead><tr><th>Estación</th><th>Fuente</th><th>Dist.</th><th>°C</th><th>Viento</th><th>Racha</th><th>HR</th><th>hPa</th></tr></thead><tbody>
       ${c.estaciones_cercanas.map((s) => `<tr><td>${esc(s.nombre || s.id)}${s.hora ? `<br><small class="num">${esc(new Date(s.hora).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }))}</small>` : ""}</td><td>${esc(s.fuente || "APRS")}</td><td class="num">${s.dist_km} km</td><td class="num">${s.temp_c != null ? nf1.format(s.temp_c) : "–"}</td><td class="num">${s.viento_kmh ?? "–"}</td><td class="num">${s.racha_kmh ?? "–"}</td><td class="num">${s.humedad_pct != null ? s.humedad_pct + "%" : "–"}</td><td class="num">${s.presion_hpa != null ? nf1.format(s.presion_hpa) : "–"}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">Ninguna estación (APRS, METAR o XEMA) con datos fiables en 40 km. El pronóstico se apoya solo en modelos numéricos.</p>`}</section>

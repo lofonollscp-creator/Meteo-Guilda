@@ -30,6 +30,8 @@ def test_busca_el_pueblo_y_da_la_prevision(cli, monkeypatch):  # noqa: F811
     assert r.status_code == 200 and d["answer"] == "En Vielha (Catalunya) hará frío."
     assert d["herramientas"] == [{"nombre": "prevision", "etiqueta": "Previsión de modelos", "lugar": "Vielha (Catalunya, España)", "ok": True}]
     assert d["lugares"][0]["lat"] == 42.7
+    t = d["tarjetas"][0]
+    assert t["tipo"] == "prevision" and t["lat"] == 42.7 and t["ahora"]["temp"] is not None and len(t["serie"]) == 12 and t["dias"]
     assert "HERRAMIENTAS" in vistos[0][0]
     vuelta = vistos[1][1][-1]["content"]                                       # el modelo recibe los datos reales
     assert vuelta.startswith("Resultados de las herramientas") and '"tramos"' in vuelta and "prevision" in vuelta
@@ -81,3 +83,23 @@ def test_ruta_y_comparar_por_nombres(cli, monkeypatch):  # noqa: F811
     monkeypatch.setattr(ai, "complete", comp)
     d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "x"}], "lat": 42.5, "lon": 0.7, "name": "Aquí"}).json()
     assert [h["ok"] for h in d["herramientas"]] == [True, True] and [h["nombre"] for h in d["herramientas"]] == ["ruta", "comparar"]
+
+
+def test_guardar_lugar_y_mi_ubicacion_son_propuestas_con_boton(cli, monkeypatch):  # noqa: F811
+    async def comp(http, cfg, system, messages, **k):
+        if len(messages) == 1:
+            return ('<tool>{"name":"guardar_lugar","args":{"lugar":"Vielha"}}</tool>\n'
+                    '<tool>{"name":"usar_como_mi_ubicacion","args":{"lugar":"Vielha"}}</tool>')
+        return "Te he preparado los botones."
+    monkeypatch.setattr(ai, "complete", comp)
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "guarda Vielha y ponla como mi ubicación"}]}).json()
+    assert [t["accion"] for t in d["tarjetas"]] == ["favorito", "ubicacion"] and d["tarjetas"][0]["lat"] == 42.7
+    assert cli.get("/api/me/settings").json()["home"] is None             # el servidor NO cambia nada: lo confirma la persona en la web
+
+
+def test_la_tarjeta_de_prevision_trae_series_y_contraste(cli, monkeypatch):  # noqa: F811
+    async def comp(http, cfg, system, messages, **k):
+        return '<tool>{"name":"prevision","args":{"lugar":"Vielha"}}</tool>' if len(messages) == 1 else "Listo."
+    monkeypatch.setattr(ai, "complete", comp)
+    t = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "x"}]}).json()["tarjetas"][0]
+    assert len(t["lluvia"]) == len(t["viento_serie"]) == len(t["horas"]) == 12 and t["modelos"] >= 1 and "contraste" in t
