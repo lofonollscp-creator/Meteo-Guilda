@@ -73,8 +73,19 @@ const ctx = {
 };
 
 /* ---------- Tema ---------- */
-const paintThemeIcon = () => { $("#theme").innerHTML = icon(isDark() ? "sun" : "moon"); };
-$("#theme").addEventListener("click", () => { root.dataset.theme = isDark() ? "light" : "dark"; LS.set("mg-theme", root.dataset.theme); applyMapTheme(); paintThemeIcon(); });
+/* Tema: sistema → claro → oscuro (el modo «sistema» sigue al dispositivo y cambia solo con él) */
+const THEMES = [[null, "monitor", "Sistema"], ["light", "sun", "Claro"], ["dark", "moon", "Oscuro"]];
+const themeMode = () => { const v = LS.get("mg-theme", null); return v === "light" || v === "dark" ? v : null; };
+const paintThemeIcon = () => {
+  const [, ic, name] = THEMES.find(([m]) => m === themeMode()), b = $("#theme");
+  b.innerHTML = icon(ic); b.title = `Tema: ${name} (pulsa para cambiar)`; b.setAttribute("aria-label", `Tema: ${name}. Pulsa para cambiar entre sistema, claro y oscuro`);
+};
+$("#theme").addEventListener("click", () => {
+  const i = THEMES.findIndex(([m]) => m === themeMode()), [mode, , name] = THEMES[(i + 1) % THEMES.length];
+  if (mode) root.dataset.theme = mode; else delete root.dataset.theme;
+  mode ? LS.set("mg-theme", mode) : localStorage.removeItem("mg-theme");
+  applyMapTheme(); paintThemeIcon(); ctx.toast(`Tema: ${name}`);
+});
 matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applyMapTheme);
 
 /* ---------- Mapa ---------- */
