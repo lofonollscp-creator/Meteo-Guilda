@@ -67,7 +67,7 @@ export function dataCard(c, m, k) {
     const fav = c.accion === "favorito";
     return `<div class="dcard act" ${at}><div class="dc-h"><span>${fav ? "Guardar en favoritos" : "Usar como Mi ubicación"}</span></div>
       <p class="dc-q">${fav ? `¿Guardo <b>${esc(short(c.lugar))}</b> en tus lugares?` : `¿Pongo <b>${esc(short(c.lugar))}</b> como tu ubicación? El asistente y la previsión la usarán para «aquí».`}</p>
-      <div class="dc-acts">${c.hecho ? `<span class="done">${icon("check", 14)} ${fav ? "Guardado" : "Ubicación actualizada"}</span>` : `<button type="button" class="pri" data-act="${esc(c.accion)}">${fav ? "Guardar" : "Usar como Mi ubicación"}</button>`}</div></div>`;
+      <div class="dc-acts">${c.hecho === "no" ? `<span class="done" style="color:var(--ink-3)">Lo dejamos así</span>` : c.hecho ? `<span class="done">${icon("check", 14)} ${fav ? "Guardado" : "Ubicación actualizada"}</span>` : `<button type="button" class="pri" data-act="${esc(c.accion)}">${fav ? "Guardar" : "Usar como Mi ubicación"}</button><button type="button" class="ghost" data-act="no">Ahora no</button>`}</div></div>`;
   }
   return "";
 }

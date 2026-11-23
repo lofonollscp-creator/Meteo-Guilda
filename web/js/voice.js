@@ -21,10 +21,13 @@ const trozos = (t) => t.match(/[^.!?]+[.!?]*\s*/g)?.flatMap((s) => (s.length > 2
 export function startLive({ root, ask, onClose }) {
   const box = document.createElement("div");
   box.className = "live"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Modo Live: conversación por voz");
-  box.innerHTML = `<button type="button" class="live-x icon-btn" aria-label="Salir del modo Live">${icon("x")}</button>
+  box.innerHTML = `<div class="live-h"><b><i></i>Live</b><button type="button" class="live-x icon-btn" aria-label="Salir del modo Live">${icon("x")}</button></div>
     <div class="live-c"><button type="button" class="orb" aria-label="Hablar o interrumpir"><i></i><i></i><i></i></button>
     <p class="live-st" aria-live="polite"></p><p class="live-cap" aria-live="polite"></p></div>
-    <p class="live-note">El reconocimiento de voz lo hace tu navegador y puede enviar el audio a su proveedor. Di «para» o toca la ✕ para salir.</p>`;
+    <div class="live-ctl"><button type="button" class="rb" id="live-mute" aria-pressed="false" aria-label="Silenciar micrófono">${icon("mic")}</button>
+      <button type="button" class="rb" id="live-kb" aria-label="Volver al teclado">${icon("edit")}</button>
+      <button type="button" class="end" id="live-end">Terminar</button></div>
+    <p class="live-note">El reconocimiento de voz lo hace tu navegador y puede enviar el audio a su proveedor. Di «para» o toca Terminar.</p>`;
   root.appendChild(box);
   const orb = box.querySelector(".orb"), st = box.querySelector(".live-st"), cap = box.querySelector(".live-cap");
   let rec = null, state = "paused", dead = false, quiet = 0, voice = null;
@@ -73,9 +76,11 @@ export function startLive({ root, ask, onClose }) {
     next();
   }
   function close() { if (dead && !box.isConnected) return; dead = true; try { rec?.abort(); } catch {} speechSynthesis.cancel(); speechSynthesis.removeEventListener?.("voiceschanged", pickVoice); box.remove(); onClose?.(); }
-  box.querySelector(".live-x").onclick = close;
+  box.querySelector(".live-x").onclick = close; box.querySelector("#live-end").onclick = close; box.querySelector("#live-kb").onclick = close;
+  const mute = box.querySelector("#live-mute");
+  mute.onclick = () => { const on = mute.getAttribute("aria-pressed") !== "true"; mute.setAttribute("aria-pressed", String(on)); if (on) { speechSynthesis.cancel(); try { rec?.abort(); } catch {} set("paused", "Micrófono silenciado"); } else { quiet = 0; listen(); } };
   box.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   orb.onclick = () => { if (state === "speaking") { speechSynthesis.cancel(); state = "paused"; listen(); } else if (state === "listening") { set("paused"); try { rec.abort(); } catch {} } else if (state === "paused" || state === "error") { quiet = 0; listen(); } };
-  orb.focus(); listen();
+  box.tabIndex = -1; box.focus({ preventScroll: true }); listen();
   return { close };
 }

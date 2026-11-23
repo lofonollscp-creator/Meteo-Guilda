@@ -1040,3 +1040,53 @@ dialog#dlg .qsl-acts .btn:focus-visible{outline-offset:2px}
 .contr.medio .dot{background:#d9a300}.contr.bajo .dot{background:var(--bad)}
 .chat .live-c{gap:38px}
 .rsel a.btn{text-decoration:none}
+
+/* =====================================================================
+   v3 — ajustes según el lienzo «Asistente Guilda IA» (un solo acento, superficies suaves, composer y Live)
+   ===================================================================== */
+:root{--ai:#4b3fd1;--ai-soft:#e7e5f8;--aig:linear-gradient(145deg,#4b3fd1,#8b7cf6)}
+:root[data-theme="dark"]{--ai:#a99bff;--ai-soft:#1b1735;--aig:linear-gradient(145deg,#5b4de0,#a99bff)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ai:#a99bff;--ai-soft:#1b1735;--aig:linear-gradient(145deg,#5b4de0,#a99bff)}}
+/* mensajes: el del usuario en gris suave, la respuesta en texto limpio a 16 px; avatar cuadrado redondeado de un solo color */
+.chat .m.u{background:color-mix(in srgb,var(--ink) 7%,var(--surface));color:var(--ink);border-radius:22px 22px 6px 22px;padding:12px 18px}
+.chat .m.a .mb{font-size:16px;line-height:1.65}
+.chat .chat-av,.chat .m .av{background:var(--ai);border-radius:10px}
+.chat .m .av{width:30px;height:30px}
+.chat .m.a{gap:16px}
+/* sugerencias: gris neutro, el violeta solo al pasar el ratón */
+.chat .hints button{background:var(--bg);color:var(--ink-2);font-weight:550;min-height:44px;padding:0 16px;box-sizing:border-box}
+.chat .hints button:hover{background:var(--ai-soft);color:var(--ai);filter:none}
+/* composer: píldora blanca con sombra violeta suave; enviar en el color de acento */
+.chat form{align-items:center}
+.chat textarea{background:var(--surface);box-shadow:var(--ring),0 12px 32px rgba(75,63,209,.10);border-radius:999px;padding:14px 20px;min-height:52px}
+.chat .chat-send{background:var(--ai);color:#fff;width:44px;height:44px}
+.chat .chat-mic{background:var(--ai-soft);color:var(--ai);width:44px;height:44px}
+/* saludo: segunda línea en gris (como el diseño), sin degradado en el texto */
+.chat .hello h3 span{background:none;-webkit-background-clip:initial;background-clip:initial;color:var(--ink-3)}
+.chat .hintcards button{background:var(--surface);box-shadow:var(--ring)}
+/* tarjetas: más aire y radio 24 */
+.chat .dcard{border-radius:24px;padding:20px 22px;box-shadow:var(--ring),0 10px 30px rgba(20,20,20,.05)}
+.chat .dc-acts button{min-height:36px}
+.chat .dc-acts .pri{font-weight:600;padding:0 18px;min-height:40px}
+.chat .dc-acts .ghost{background:var(--bg)}
+/* Live: cabecera con punto «Live», orbe de 150 px, controles y nota */
+.chat .live{justify-content:space-between;align-items:stretch;padding:0;gap:0}
+.chat .live-h{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + var(--sat)) 12px 0 20px}
+.chat .live-h b{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.chat .live-h b i{width:8px;height:8px;border-radius:50%;background:var(--ai)}
+.chat .live-x{position:static}
+.chat .live-c{flex:1;justify-content:center;align-self:center;padding:0 28px;max-width:420px}
+.chat .orb{width:150px;height:150px}
+.chat .live-st{font-size:19px;font-weight:650}
+.chat .live-cap{font-size:16px;min-height:72px}
+.chat .live-ctl{display:flex;justify-content:center;gap:14px;padding:0 24px 16px}
+.chat .live-ctl .rb{width:56px;height:56px;border-radius:50%;background:var(--bg);color:var(--ink);display:grid;place-items:center}
+.chat .live-ctl .rb svg{stroke:currentColor;fill:none;width:22px;height:22px}
+.chat .live-ctl .rb[aria-pressed="true"]{background:var(--ai-soft);color:var(--ai)}
+.chat .live-ctl .end{height:56px;border-radius:999px;padding:0 26px;background:var(--ink);color:var(--surface);font-size:15px;font-weight:600}
+.chat .live-note{position:static;padding:0 28px calc(22px + env(safe-area-inset-bottom));text-align:center;line-height:1.45}
+.chat .hints{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:8px}
+.chat .hints::-webkit-scrollbar{display:none}
+.chat .hints button{flex:none;white-space:nowrap}
+.chat .orb{border:0;padding:0;outline:0}
+.chat .orb:focus-visible{outline:2px solid var(--ai);outline-offset:6px}

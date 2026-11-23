@@ -136,7 +136,7 @@ function paint() {
       <div class="msgs" id="chat-msgs" aria-live="polite"></div>
       <div class="hints" id="chat-hints"></div>
       <form id="chat-form"><textarea id="chat-in" rows="1" maxlength="1500" placeholder="Pregunta lo que quieras…" aria-label="Mensaje"></textarea>
-        ${liveSupported() ? `<button class="chat-mic" type="button" id="chat-mic" aria-label="Hablar con Guilda (modo Live)" title="Modo Live: charla por voz">${icon("mic", 18)}</button>` : ""}
+        ${liveSupported() ? `<button class="chat-mic" type="button" id="chat-mic" aria-label="Hablar con Guilda (modo Live)" title="Modo Live: charla por voz">${icon("wave2", 18)}</button>` : ""}
         <button class="chat-send" type="submit" aria-label="Enviar" id="chat-send">${icon("up", 18)}</button></form>
       <p class="chat-foot">Modelo gratuito · puede equivocarse; los avisos oficiales mandan · <a href="#" id="chat-cfg2">Ajustes de IA</a></p></div>
     <div class="chat-src" id="chat-src" aria-label="Fuentes"></div>`;
@@ -192,6 +192,7 @@ function drawMsgs() {
     if (ac && ac.dataset.act === "ask") return ask(ac.dataset.q);
     if (ac) {
       const card = ac.closest(".dcard"), c = msgs()[+card.dataset.m]?.cards?.[+card.dataset.k]; if (!c) return;
+      if (ac.dataset.act === "no") { c.hecho = "no"; save(); drawMsgs(); return; }
       const t = accion(ac.dataset.act, c); if (t) ctx.toast?.(t);
       if (c.tipo === "accion") { c.hecho = true; save(); drawMsgs(); } else { ac.disabled = true; ac.innerHTML = `${icon("check", 14)} Hecho`; }
       return;
