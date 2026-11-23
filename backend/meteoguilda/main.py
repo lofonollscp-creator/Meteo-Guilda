@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import mar as mar_mod
+from . import comparar as comparar_mod
 from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
@@ -340,6 +341,32 @@ async def air(request: Request, lat: float = Query(ge=-90, le=90), lon: float = 
         return await airq.fetch(H(request), lat, lon)
     except httpx.HTTPError as e:
         raise HTTPException(502, "Fuente de calidad del aire no disponible") from e
+
+
+@app.get("/api/compare")
+async def compare(request: Request, pts: str = Query(max_length=400)):
+    """Compara de 2 a 4 lugares ('lat,lon,nombre;lat,lon,nombre'): cifras de 48 h, series superponibles y un veredicto."""
+    limit(request, "point")
+    items = []
+    try:
+        for t in [x for x in pts.split(";") if x][:4]:
+            la, lo, *n = t.split(",")
+            la, lo = float(la), float(lo)
+            if not (-90 <= la <= 90 and -180 <= lo <= 180):
+                raise ValueError
+            items.append((la, lo, (",".join(n) or f"{la:.2f}, {lo:.2f}")[:60]))
+    except ValueError as e:
+        raise HTTPException(422, "Formato: lat,lon,nombre;lat,lon,nombre") from e
+    if len(items) < 2:
+        raise HTTPException(422, "Indica al menos 2 lugares")
+    http = H(request)
+    try:
+        sums = await asyncio.gather(*(get_summary(http, la, lo) for la, lo, _ in items))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Fuente de modelos no disponible") from e
+    filas = [comparar_mod.fila(n, la, lo, s) for (la, lo, n), s in zip(items, sums)]
+    return {"lugares": filas, "veredicto": comparar_mod.veredicto(filas),
+            "nota": "Mismos modelos y mismas horas locales de cada lugar; las series se alinean por tramo desde ahora, no por reloj común si hay husos distintos."}
 
 
 @app.get("/api/mar")

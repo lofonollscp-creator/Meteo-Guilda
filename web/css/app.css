@@ -564,3 +564,6 @@ html,body{overscroll-behavior:none}
 .aviso-naranja{border-color:#e68a2e;background:color-mix(in srgb,#e68a2e 14%,var(--surface))}.aviso-naranja .aviso-dot{background:#e68a2e}
 .aviso-rojo{border-color:#c0392b;background:color-mix(in srgb,#c0392b 14%,var(--surface))}.aviso-rojo .aviso-dot{background:#c0392b}
 .aviso-links{margin:0;font-size:12px;color:var(--ink-3)}.aviso-links a{color:var(--accent);text-decoration:underline}
+
+.tablewrap td.best{color:var(--ok);font-weight:700}
+ul.plain{margin:6px 0 0;padding-left:18px}ul.plain li{margin:4px 0}

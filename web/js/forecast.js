@@ -24,6 +24,7 @@ export function mount(c) {
     <a class="group-label home-link" href="#/forecast">Inicio${icon("home", 14)}</a>
     <div id="myloc"></div>
     <div id="favs"></div>
+    <a class="group-label home-link" href="#/forecast/comparar" id="cmp-link">Comparar lugares</a>
     <div class="group-label">Lugares principales</div>
     <ul class="places" id="places" role="list"></ul>
     <p class="cola-note">Resumen de la media de 8 modelos numéricos. Los lugares guardados quedan en este dispositivo.</p>`;
@@ -189,6 +190,7 @@ export function show(parts) {
     if (matchMedia("(max-width:760px)").matches) { sel = null; ctx.pane("list"); renderPlaces(); renderFavs(); return home(true); }   // «Detalle» muestra Hoy, nunca vacío
     return home();
   }
+  if (parts[0] === "comparar") { sel = null; renderPlaces(); renderFavs(); ctx.pane("detail"); return compararPage(); }
   const my = ++req;
   let url, item;
   if (parts[0] === "p") {
@@ -253,7 +255,7 @@ function render(d) {
   const alt = c.ubicacion.altitud_m != null ? ` · ${nf.format(c.ubicacion.altitud_m)} m` : "";
   const q0m = getQth(), isMine = q0m?.lat != null && Math.abs(q0m.lat - la) < 0.002 && Math.abs(q0m.lon - lo) < 0.002;
   const area = isMine ? `Mi ubicación${q0m.locator ? ` · ${esc(q0m.locator)}` : ""}${alt}` : lug.area ? `${esc(lug.area)} · ${esc(lug.region)}${alt}` : `${la.toFixed(3)}°, ${lo.toFixed(3)}°${alt}`;
-  lastData = d;
+  lastData = d; dayZoom = null;
   const nm = c.modelos.length, srcs = [...new Set((c.estaciones_cercanas || []).map((s) => s.fuente || "APRS"))];
   const tint = ramp(SCALES.temp, now.temp_c.mean).replace("rgb(", "rgba(").replace(")", ",.16)");
   const press = T.map((x) => x.presion_hpa?.mean), trend = press[4] != null && press[0] != null ? (press[4] - press[0] > 1 ? `${icon("up", 13)} subiendo` : press[4] - press[0] < -1 ? `${icon("down", 13)} bajando` : `${icon("right", 13)} estable`) : "";
@@ -299,6 +301,7 @@ function render(d) {
 
   <section class="sec"><div class="label">Horas y gráficos
       <span class="seg" role="group" aria-label="Horizonte"><button type="button" data-h="16" aria-pressed="${horizon === 16}">48 h</button><button type="button" data-h="40" aria-pressed="${horizon === 40}">5 días</button></span></div>
+    <div class="seg dz" id="dz" role="group" aria-label="Ampliar un día">${dayZoomBtns(c.dias)}</div>
     <div class="strip" id="strip"></div><div id="charts"></div>
     <div class="legend"><span><i style="border-color:var(--accent)"></i>media de modelos</span><span><i style="border-color:var(--wind);border-top-style:dashed"></i>racha</span><span>Flechas: hacia dónde sopla</span></div></section>
 
@@ -339,7 +342,8 @@ function render(d) {
     else if (b.dataset.a === "refresh") refreshNow(b);
     else navigator.clipboard?.writeText(location.href).then(() => ctx.toast("Enlace copiado"));
   });
-  $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); drawModels(c); }));
+  $$("[data-z]", ctx.colb).forEach((b) => b.addEventListener("click", () => { dayZoom = b.dataset.z || null; $$("[data-z]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); }));
+  $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; dayZoom = null; $$("[data-z]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(!x.dataset.z))); $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); drawModels(c); }));
   drawCharts(T, mountain);
   drawModels(c);
   loadAvisos(la, lo, req);
@@ -462,6 +466,78 @@ async function loadAir(la, lo) {
   } catch (e) { $("#airbox") && ($("#airbox").innerHTML = `<p class="empty">No se pudo cargar la calidad del aire (${esc(e.message)}).</p>`); }
 }
 
+/* ---------- comparar lugares ---------- */
+const CMP_VARS = [["temp_c", "Temperatura", (v) => `${nf1.format(v)} °C`], ["lluvia_mm", "Lluvia", (v) => `${nf1.format(v)} mm`], ["racha_kmh", "Racha", (v) => `${nf.format(v)} km/h`], ["nubes_pct", "Nubes", (v) => `${nf.format(v)} %`]];
+let cmpVar = "temp_c";
+function cmpCandidates() {
+  const m = new Map(), add = (name, lat, lon) => { if (lat == null) return; const k = favKey(lat, lon); if (!m.has(k)) m.set(k, { key: k, name, lat, lon }); };
+  if (hasQth() && getQth().lat != null) add(qthLabel(), getQth().lat, getQth().lon);
+  favs.forEach((f) => add(f.name, f.lat, f.lon));
+  places.forEach((p) => add(p.name, p.lat, p.lon));
+  if (last) add(last.name, last.lat, last.lon);
+  return [...m.values()];
+}
+async function compararPage() {
+  const my = ++req;
+  if (!places.length) { try { places = await api("/api/places"); } catch { /* se compara con lo que haya guardado */ } if (my !== req) return; }
+  const cand = cmpCandidates();
+  let chosen = LS.get("mg-cmp", []).filter((k) => cand.some((c) => c.key === k)).slice(0, 4);
+  if (chosen.length < 2) chosen = cand.slice(0, 2).map((c) => c.key);
+  ctx.colb.scrollTop = 0;
+  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Comparar lugares</h1><p>Elige de 2 a 4 lugares y mira cuál tiene mejor tiempo en las próximas 48 h.</p></div></div>
+    <div class="mchips" id="cmp-pick" role="group" aria-label="Lugares a comparar"></div>
+    <p class="empty" id="cmp-hint">${cand.length < 2 ? "Guarda algún lugar con la estrella o define tu QTH para poder compararlo." : ""}</p>
+    <div id="cmp-out"></div>`;
+  const draw = () => {
+    $("#cmp-pick").innerHTML = cand.map((c) => `<button type="button" class="mchip" data-k="${esc(c.key)}" aria-pressed="${chosen.includes(c.key)}"><i></i>${esc(c.name)}</button>`).join("");
+    $("#cmp-hint").textContent = chosen.length < 2 && cand.length >= 2 ? "Elige al menos 2." : chosen.length >= 4 ? "Máximo 4 a la vez." : "";
+  };
+  draw();
+  const go = debounce(async () => {
+    if (chosen.length < 2) { $("#cmp-out").innerHTML = ""; return; }
+    LS.set("mg-cmp", chosen);
+    $("#cmp-out").innerHTML = '<div class="skeleton" style="height:180px;border-radius:12px"></div>';
+    try {
+      const pts = chosen.map((k) => cand.find((c) => c.key === k)).map((c) => `${c.lat.toFixed(4)},${c.lon.toFixed(4)},${c.name.replace(/[;,]/g, " ")}`).join(";");
+      const d = await api(`/api/compare?pts=${encodeURIComponent(pts)}`);
+      if (my !== req || !$("#cmp-out")) return;
+      paintCompare(d);
+    } catch (e) { if (my === req && $("#cmp-out")) $("#cmp-out").innerHTML = `<div class="err"><strong>No se pudo comparar</strong><p class="empty">${esc(e.message)}</p></div>`; }
+  }, 250);
+  $("#cmp-pick").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-k]"); if (!b) return;
+    const k = b.dataset.k, i = chosen.indexOf(k);
+    if (i >= 0) chosen.splice(i, 1); else if (chosen.length < 4) chosen.push(k); else { ctx.toast("Máximo 4 lugares a la vez"); return; }
+    draw(); go();
+  });
+  go();
+}
+function paintCompare(d) {
+  const L = d.lugares, col = MODEL_COLORS, f1 = (v) => (v == null ? "–" : nf1.format(v)), f0v = (v) => (v == null ? "–" : nf.format(Math.round(v)));
+  const best = (key, low, gap) => { const v = L.map((x) => x[key]).filter((x) => x != null); return v.length > 1 && Math.max(...v) - Math.min(...v) >= gap ? (low ? Math.min(...v) : Math.max(...v)) : null; };
+  const bTmax = best("max_c", false, 2), bRain = best("lluvia_48h_mm", true, 1), bGust = best("racha_max_kmh", true, 10);
+  const cell = (v, b, txt) => `<td class="num${b != null && v === b ? " best" : ""}">${txt}</td>`;
+  $("#cmp-out").innerHTML = `${d.veredicto.length ? `<div class="card"><h3>En pocas palabras</h3><ul class="plain">${d.veredicto.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+    <div class="tablewrap" style="margin-top:14px"><table><thead><tr><th>48 h</th>${L.map((x, k) => `<th style="border-bottom:3px solid ${col[k]}">${esc(x.nombre)}</th>`).join("")}</tr></thead><tbody>
+      <tr><td>Ahora</td>${L.map((x) => `<td class="num">${f0v(x.ahora_c)} °C</td>`).join("")}</tr>
+      <tr><td>Mínima – máxima</td>${L.map((x) => cell(x.max_c, bTmax, `${f0v(x.min_c)} – ${f0v(x.max_c)} °C`)).join("")}</tr>
+      <tr><td>Lluvia acumulada</td>${L.map((x) => cell(x.lluvia_48h_mm, bRain, `${f1(x.lluvia_48h_mm)} mm`)).join("")}</tr>
+      <tr><td>Racha máxima</td>${L.map((x) => cell(x.racha_max_kmh, bGust, `${f0v(x.racha_max_kmh)} km/h`)).join("")}</tr>
+      <tr><td>Nubosidad media</td>${L.map((x) => `<td class="num">${f0v(x.nubes_media_pct)} %</td>`).join("")}</tr>
+      <tr><td>Altitud</td>${L.map((x) => `<td class="num">${f0v(x.elevacion_m)} m</td>`).join("")}</tr></tbody></table></div>
+    <section class="sec"><div class="label">Superpuestos <span class="seg" role="group" aria-label="Variable">${CMP_VARS.map(([k, l]) => `<button type="button" data-cv="${k}" aria-pressed="${cmpVar === k}">${l}</button>`).join("")}</span></div>
+      <div class="mchips">${L.map((x, k) => `<span class="mchip" style="--c:${col[k]}"><i></i>${esc(x.nombre)}</span>`).join("")}</div><div id="cmp-chart" class="chart"></div></section>
+    <p class="empty" style="font-size:12px">En verde, el mejor valor de cada fila cuando la diferencia es apreciable. ${esc(d.nota)} <a href="#/forecast">Volver al inicio</a></p>`;
+  const draw = () => {
+    const [, , fmt] = CMP_VARS.find((v) => v[0] === cmpVar), n = Math.min(...L.map((x) => x.tiempo.length)), T = L[0].tiempo.slice(0, n).map((t) => ({ time: t }));
+    const series = L.map((x, k) => ({ id: String(k), label: x.nombre, color: col[k], vals: x.series[cmpVar].slice(0, n) }));
+    renderModels($("#cmp-chart"), T, series, T.map(() => null), axisFor, { fmt, zero: cmpVar !== "temp_c", noMean: true, when: (i) => `<b>${wd(T[i].time)} ${hh(T[i].time)}</b>`,
+      lowLabel: cmpVar === "temp_c" ? "más frío" : "menor", highLabel: cmpVar === "temp_c" ? "más cálido" : "mayor" });
+  };
+  $$("[data-cv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { cmpVar = b.dataset.cv; $$("[data-cv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); draw(); }));
+  draw();
+}
+
 /* ---------- montaña: lo que importa arriba, calculado con los mismos datos ---------- */
 function mountainCard(T, alt) {
   const v = (k, f = "mean") => T.map((x) => x[k]?.[f]).filter((x) => x != null);
@@ -542,8 +618,10 @@ function drawModels(c) {
     lowLabel: mvar === "temp_c" ? "más frío" : "menor", highLabel: mvar === "temp_c" ? "más cálido" : "mayor" });
 }
 
+let dayZoom = null;
+const dayZoomBtns = (dias) => `<button type="button" data-z="" aria-pressed="true">Todo</button>${dias.slice(0, 5).map((x) => `<button type="button" data-z="${esc(x.fecha)}" aria-pressed="false">${esc(wd(x.fecha))}</button>`).join("")}`;
 function drawCharts(all, mountain) {
-  const T = all.slice(0, horizon), g = (k, f = "mean") => (i) => T[i][k]?.[f] ?? 0, hasSnow = T.some((x) => (x.nieve_cm?.mean ?? 0) > 0.05);
+  const T = (dayZoom ? all.filter((x) => x.time.slice(0, 10) === dayZoom) : all.slice(0, horizon)), g = (k, f = "mean") => (i) => T[i][k]?.[f] ?? 0, hasSnow = T.some((x) => (x.nieve_cm?.mean ?? 0) > 0.05);
   renderStrip($("#strip"), T, [
     { label: "Temp °C", val: (i) => T[i].temp_c?.mean, color: (v) => ramp(SCALES.temp, v), text: (v) => t0(v) },
     { label: "Lluvia mm", val: (i) => T[i].lluvia_mm?.mean, color: (v) => ramp(SCALES.rain, v), text: (v) => (v < 0.05 ? "" : nf1.format(v)), ink: (v) => (v > 3 ? "#fff" : "#14191f") },

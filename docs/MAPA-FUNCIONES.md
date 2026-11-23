@@ -20,6 +20,7 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Observaciones reales (APRS, METAR, XEMA) | `GET /api/observations`, `GET /api/stations` | `get_nearby_observations`, `get_stations` |
 | Mejor momento para… (senderismo, ciclismo, dron, colada, estrellas, playa) | `GET /api/activities`, `GET /api/activity` | `list_activities`, `plan_activity` |
 | Aire, UV y polen | `GET /api/air` | `get_air_quality` |
+| Comparar lugares | `GET /api/compare` | `compare_places` |
 | Estado del mar | `GET /api/mar` | `get_sea_state` |
 | Sol y Luna | `GET /api/astro` | `sun_moon` |
 | Rutas con el tiempo a la hora de paso | `POST /api/route` | `plan_route` |

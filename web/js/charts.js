@@ -247,13 +247,13 @@ export function renderModels(host, items, series, mean, axis, opts = {}) {
       flush();
     };
     vis.forEach((s) => line(s.vals, "ml", s.color));
-    line(mean, "ml mean");
+    if (!opts.noMean) line(mean, "ml mean");
     const cur = el("line", { class: "cur", y1: M.t, y2: H - M.b }, svg);
     const show = (i) => {
       cur.setAttribute("x1", x(i)); cur.setAttribute("x2", x(i)); cur.style.opacity = 0.35;
       const f = opts.fmt || f0, vs = vis.map((s) => [s, s.vals[i]]).filter(([, v]) => v != null).sort((a, b) => a[1] - b[1]);
       const ext = vs.length > 1 ? `<br>${opts.lowLabel || "menor"}: ${vs[0][0].label} <b>${f(vs[0][1])}</b> · ${opts.highLabel || "mayor"}: ${vs.at(-1)[0].label} <b>${f(vs.at(-1)[1])}</b>` : "";
-      showBubble(bubble, cw, svg, W, x(i), `${opts.when?.(i) || ""} · media <b>${f(mean[i])}</b>${ext}`);
+      showBubble(bubble, cw, svg, W, x(i), `${opts.when?.(i) || ""}${opts.noMean ? "" : ` · media <b>${f(mean[i])}</b>`}${ext}`);
     };
     pointerIndex(svg, W, n, iw, show, () => { cur.style.opacity = 0; bubble.classList.remove("on"); });
   });

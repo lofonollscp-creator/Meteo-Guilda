@@ -288,6 +288,14 @@ async def get_air_quality(lat: float, lon: float) -> dict:
 
 
 @mcp.tool()
+async def compare_places(places: list[dict]) -> dict:
+    """Compara 2-4 lugares con los mismos modelos: temperatura ahora, mínima/máxima, lluvia, racha y nubes de las próximas 48 h, y un veredicto.
+    `places` es una lista de {lat, lon, name}."""
+    pts = ";".join(f"{float(p['lat'])},{float(p['lon'])},{str(p.get('name', '')).replace(';', ' ').replace(',', ' ')}" for p in places[:4])
+    return await _call("GET", "/api/compare", params={"pts": pts})
+
+
+@mcp.tool()
 async def get_sea_state(lat: float, lon: float) -> dict:
     """Estado del mar de un punto costero: altura y periodo del oleaje, mar de fondo, dirección, temperatura del agua y estado Douglas, ahora y 48 h.
     `hay_mar=false` si el punto está tierra adentro."""
