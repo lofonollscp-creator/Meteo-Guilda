@@ -16,8 +16,8 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/newsreader-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="vendor/maplibre-gl.css">
 <link rel="stylesheet" href="css/app.css">
+<link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/forecast.js"><link rel="modulepreload" href="js/charts.js"><link rel="modulepreload" href="js/util.js">
 <script>try{var t=JSON.parse(localStorage.getItem('mg-theme'));if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body data-section="forecast">
@@ -31,7 +31,8 @@
     <button class="nv" data-s="learn" type="button"><i data-i="book" data-s="22"></i><span>Aprende</span></button>
     <div class="spacer"></div>
     <button class="icon-btn" id="install" type="button" aria-label="Instalar como aplicación" title="Instalar la app" hidden><i data-i="install"></i></button>
-    <button class="icon-btn" id="syncbtn" type="button" aria-label="Sincronización y acceso por API" title="Sincronización y API"><i data-i="key"></i></button>
+    <button class="icon-btn" id="chatbtn" type="button" aria-label="Asistente de IA" title="Asistente de IA"><i data-i="chat"></i></button>
+    <button class="icon-btn" id="acctbtn" type="button" aria-label="Ajustes de la cuenta" title="Ajustes (IA, cuenta, sincronización)"><i data-i="gear"></i></button>
     <button class="icon-btn" id="theme" type="button" aria-label="Cambiar tema claro/oscuro" title="Tema"><i data-i="sun"></i></button>
   </nav>
   <aside class="cola" id="cola" aria-label="Panel"></aside>
@@ -44,8 +45,7 @@
     <button type="button" data-pane="map" aria-pressed="false">Mapa</button>
   </div>
 </div>
-<dialog id="dlg" aria-label="Sincronización"></dialog>
-<script src="vendor/maplibre-gl.js"></script>
+<dialog id="dlg" aria-label="Ajustes"></dialog>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

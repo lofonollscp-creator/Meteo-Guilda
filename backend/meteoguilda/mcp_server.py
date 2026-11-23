@@ -22,9 +22,9 @@ API = os.environ.get("MG_API", "http://127.0.0.1:8000")
 mcp = MCPServer(
     "Meteo Guilda / Radio Guilda",
     instructions=(
-        "Datos meteorológicos SIN cocinar: media de modelos numéricos abiertos (ECMWF, ICON, GFS, Météo-France) y "
-        "balizas APRS reales con control de calidad. Usa get_forecast_data para razonar tú mismo con los datos; "
-        "get_ai_forecast devuelve además la lectura de un modelo gratuito. Cita siempre la confianza, no inventes "
+        "Datos meteorológicos SIN cocinar: media de modelos numéricos abiertos (ECMWF IFS y AIFS, ICON, GFS, Météo-France, GEM, UK Met Office, KNMI; 'por_modelo' trae cada uno para contrastar) y "
+        "observaciones reales (balizas APRS con control de calidad, METAR y estaciones XEMA de Cataluña). Usa get_forecast_data para razonar tú mismo con los datos; "
+        "get_ai_forecast devuelve además un resumen automático por reglas. Cita siempre la confianza, no inventes "
         "cifras y recuerda consultar los avisos oficiales (AEMET, Meteocat, Météo-France) en actividades de riesgo. "
         "Los niveles de riesgo de plan_route son 0 favorable, 1 precaución, 2 desaconsejable. Radio Guilda añade repetidores "
         "(BrandMeister y listados abiertos), propagación, satélites, ventanas para operar en portátil y un cuaderno de contactos "
@@ -85,8 +85,8 @@ async def get_forecast_data(lat: float, lon: float) -> dict:
 
 @mcp.tool()
 async def get_ai_forecast(place: str | None = None, lat: float | None = None, lon: float | None = None) -> dict:
-    """Pronóstico ya redactado por la IA de Meteo Guilda (resumen, riesgos, ventanas, recomendaciones) más los
-    datos de origen. Pasa `place` (slug: garos, premia-de-mar, tortoles-de-esgueva, bresca, la-garrovilla,
+    """Resumen automático por reglas (resumen, riesgos, recomendaciones) más los datos de origen de todos los modelos y
+    observaciones. La lectura redactada por IA la pide la web con los ajustes de cada persona; aquí razona tú con los datos. Pasa `place` (slug: garos, premia-de-mar, tortoles-de-esgueva, bresca, la-garrovilla,
     bagneres-de-bigorre) o lat+lon."""
     params = {"place": place} if place else {"lat": lat, "lon": lon}
     return await _call("GET", "/api/forecast", params=params)
@@ -94,7 +94,7 @@ async def get_ai_forecast(place: str | None = None, lat: float | None = None, lo
 
 @mcp.tool()
 async def get_nearby_observations(lat: float, lon: float, radius_km: float = 40) -> list[dict]:
-    """Observaciones reales recientes de estaciones meteo APRS/CWOP cercanas (con control de calidad)."""
+    """Observaciones reales recientes cercanas: balizas APRS/CWOP (con control de calidad), METAR de aeropuertos y estaciones XEMA (Cataluña). Campo `fuente`."""
     return await _call("GET", "/api/observations", params={"lat": lat, "lon": lon, "km": radius_km})
 
 

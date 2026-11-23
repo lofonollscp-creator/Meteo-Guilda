@@ -1,13 +1,16 @@
 import { $, $$, api, esc, nf, nf1, t0, LS, debounce, compass, wd, hh, slug } from "./util.js";
-import { renderCharts, renderStrip, sparkline, ramp, SCALES, renderRose, moonSvg, sunArc } from "./charts.js";
+import { renderCharts, renderStrip, renderModels, MODEL_COLORS, sparkline, ramp, SCALES, renderRose, moonSvg, sunArc } from "./charts.js";
 import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
+import { aiOn, onChange as onMe, me } from "./me.js";
 
-let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null;
+let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null;
 const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
 const saveFavs = () => { LS.set("mg-favs", favs); pushSettings(); };
 const favKey = (lat, lon) => slug(lat, lon);
 const findFav = (lat, lon) => favs.find((f) => f.key === favKey(lat, lon));
+const MODEL_NAMES = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS (IA)", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France",
+  gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI" };
 const sortedFavs = () => [...favs].sort((a, b) => (b.pinned | 0) - (a.pinned | 0));
 
 export function mount(c) {
@@ -21,8 +24,11 @@ export function mount(c) {
     <div id="favs"></div>
     <div class="group-label">Lugares principales</div>
     <ul class="places" id="places" role="list"></ul>
-    <p class="cola-note">Resumen de la media de 4 modelos. Los lugares guardados quedan en este dispositivo.</p>`;
+    <p class="cola-note">Resumen de la media de 8 modelos numéricos. Los lugares guardados quedan en este dispositivo.</p>`;
   ctx.stations(true);
+  ctx.place = () => (last ? { lat: last.lat, lon: last.lon, name: last.name } : null);
+  offMe = onMe(() => { if (lastData && $("#reading")) paintReading(lastData); });
+  document.addEventListener("mg:recent", reloadRecent);
   ctx.onMapClick = ({ lat, lng }) => { location.hash = `#/forecast/p/${lat.toFixed(4)},${lng.toFixed(4)},Punto del mapa`; };
   ctx.mapCtl('<button class="chip" id="fit" type="button">Ver los 6 lugares</button><span class="chip chip-ghost">Toca el mapa para consultar un punto</span>');
   $("#fit").addEventListener("click", () => ctx.fit(places.map((p) => [p.lon, p.lat])));
@@ -34,7 +40,8 @@ export function mount(c) {
   api("/api/places").then((p) => { places = p; renderPlaces(); drawPins(); if (!sel) ctx.fit(places.map((x) => [x.lon, x.lat])); }).catch(() => {});
   loadFavSnaps();
 }
-export function unmount() { ctx.stations(false); }
+const reloadRecent = () => { recent = LS.get("mg-recent", []); };
+export function unmount() { ctx.stations(false); ctx.place = () => null; offMe?.(); document.removeEventListener("mg:recent", reloadRecent); }
 
 /* ---------- listas ---------- */
 function placeRow(go, name, area, snap, { current, pinned } = {}) {
@@ -82,16 +89,17 @@ function setupSearch() {
   const q = $("#q"), box = $("#results");
   let items = [], idx = -1;
   const close = () => { box.hidden = true; idx = -1; };
-  const row = (it, tag) => `<button class="r" data-i="${items.indexOf(it)}" type="button"><span class="grow"><b>${esc(it.name)}</b><small>${esc(it.sub || "")}</small></span>
-    <span class="icon-btn" data-fav="${items.indexOf(it)}" role="button" aria-label="Guardar en favoritos" aria-pressed="${!!findFav(it.lat, it.lon)}">${ICON.star}</span></button>`;
-  const paint = (title, list, more = "") => { items.push(...list); return list.length ? `<div class="r-head">${title}</div>` + list.map((it) => row(it)).join("") + more : more; };
+  const row = (it) => `<button class="r" data-i="${items.indexOf(it)}" type="button"><span class="grow"><b>${esc(it.name)}</b><small>${esc(it.sub || "")}</small></span>
+    <span class="icon-btn" data-fav="${items.indexOf(it)}" role="button" aria-label="Guardar en favoritos" aria-pressed="${!!findFav(it.lat, it.lon)}">${ICON.star}</span>
+    ${it.recent ? `<span class="icon-btn" data-del="${favKey(it.lat, it.lon)}" role="button" aria-label="Quitar de recientes" title="Quitar de recientes">${icon("x", 15)}</span>` : ""}</button>`;
+  const paint = (title, list, more = "", head = "") => { items.push(...list); return list.length ? `<div class="r-head"><span>${title}</span>${head}</div>` + list.map((it) => row(it)).join("") + more : more; };
   async function run() {
     const t = q.value.trim(); items = [];
     let html = "";
     const mine = sortedFavs().filter((f) => !t || f.name.toLowerCase().includes(t.toLowerCase())).map((f) => ({ ...f, sub: (f.pinned ? "Anclado · " : "Favorito · ") + (f.sub || "") }));
     if (!t) {
       html += paint("Mis lugares", mine);
-      html += paint("Recientes", recent.filter((r) => !findFav(r.lat, r.lon)).slice(0, 5).map((r) => ({ ...r })));
+      html += paint("Recientes", recent.filter((r) => !findFav(r.lat, r.lon)).slice(0, 5).map((r) => ({ ...r, recent: true })), "", '<button type="button" data-clear>Borrar todo</button>');
       if (!html) html = '<div class="r-head">Escribe un lugar (municipio, pico, valle…)</div>';
     } else {
       html += paint("Mis lugares", mine);
@@ -123,6 +131,9 @@ function setupSearch() {
   });
   box.addEventListener("mousedown", (e) => e.preventDefault());
   box.addEventListener("click", (e) => {
+    const dl = e.target.closest("[data-del]");
+    if (dl) { e.stopPropagation(); recent = recent.filter((r) => favKey(r.lat, r.lon) !== dl.dataset.del); LS.set("mg-recent", recent); run(); return; }
+    if (e.target.closest("[data-clear]")) { e.stopPropagation(); recent = []; LS.set("mg-recent", recent); run(); return; }
     const f = e.target.closest("[data-fav]");
     if (f) { const it = items[+f.dataset.fav]; toggleFav({ name: it.name, sub: it.sub?.replace(/^(Anclado|Favorito) · /, ""), lat: it.lat, lon: it.lon }); f.setAttribute("aria-pressed", String(!!findFav(it.lat, it.lon))); return; }
     const b = e.target.closest(".r"); if (b) go(items[+b.dataset.i]);
@@ -133,7 +144,7 @@ function setupSearch() {
 /* ---------- navegación ---------- */
 export function show(parts) {
   if (!parts.length) {
-    if (matchMedia("(max-width:760px)").matches) { sel = null; ctx.pane("list"); renderPlaces(); renderFavs(); return; }
+    if (matchMedia("(max-width:760px)").matches) { sel = null; ctx.pane("list"); renderPlaces(); renderFavs(); return home(true); }   // «Detalle» muestra Hoy, nunca vacío
     return home();
   }
   const my = ++req;
@@ -152,6 +163,7 @@ export function show(parts) {
   renderPlaces(); renderFavs(); drawPins();
   ctx.colb.innerHTML = skeleton(); ctx.colb.scrollTop = 0;
   ctx.pane("detail");
+  lastUrl = url;
   api(url).then((d) => { if (my === req) render(d); }).catch((e) => {
     if (my !== req) return;
     ctx.colb.innerHTML = `<div class="err"><strong>No se pudo cargar el pronóstico</strong><p class="empty">${esc(e.message)}</p><button class="btn" id="retry" style="margin-top:10px">Reintentar</button></div>`;
@@ -172,6 +184,7 @@ function paintActions() {
   box.innerHTML = `<button class="icon-btn" data-a="fav" aria-pressed="${!!f}" aria-label="Guardar en favoritos" title="Favorito">${ICON.star}</button>
     <button class="icon-btn" data-a="pin" aria-pressed="${!!f?.pinned}" aria-label="Anclar" title="Anclar arriba">${ICON.pin}</button>
     <button class="icon-btn" data-a="link" aria-label="Copiar enlace" title="Copiar enlace">${ICON.link}</button>
+    <button class="icon-btn" data-a="refresh" aria-label="Actualizar datos" title="Actualizar datos (vuelve a consultar los modelos)">${icon("refresh", 18)}</button>
     <a class="icon-btn" href="/api/raw?lat=${last.lat}&lon=${last.lon}" target="_blank" rel="noopener" aria-label="Datos crudos JSON" title="Datos crudos (JSON)">${ICON.json}</a>`;
 }
 
@@ -197,7 +210,8 @@ function render(d) {
   const mountain = lug.kind === "montaña" || (c.ubicacion.altitud_m ?? 0) > 900;
   const alt = c.ubicacion.altitud_m != null ? ` · ${nf.format(c.ubicacion.altitud_m)} m` : "";
   const area = lug.area ? `${esc(lug.area)} · ${esc(lug.region)}${alt}` : `${la.toFixed(3)}°, ${lo.toFixed(3)}°${alt}`;
-  const aiBadge = d.origen === "ia" ? `Lectura de IA · ${esc((d.modelo_ia || "").split("/").pop().replace(":free", ""))}` : "Resumen automático (sin IA)";
+  lastData = d;
+  const nm = c.modelos.length, srcs = [...new Set((c.estaciones_cercanas || []).map((s) => s.fuente || "APRS"))];
   const tint = ramp(SCALES.temp, now.temp_c.mean).replace("rgb(", "rgba(").replace(")", ",.16)");
   const press = T.map((x) => x.presion_hpa?.mean), trend = press[4] != null && press[0] != null ? (press[4] - press[0] > 1 ? `${icon("up", 13)} subiendo` : press[4] - press[0] < -1 ? `${icon("down", 13)} bajando` : `${icon("right", 13)} estable`) : "";
   const gmin = Math.min(...c.dias.map((x) => x.temp_min_c ?? 99)), gmax = Math.max(...c.dias.map((x) => x.temp_max_c ?? -99));
@@ -210,11 +224,11 @@ function render(d) {
 
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${esc(lug.name)}</h1><p>${area}</p></div><div class="d-actions" id="actions"></div></div>
-  <div class="badges"><span class="badge">${confBars(p.confianza)} Confianza ${esc(p.confianza)}</span><span class="badge">Actualizado ${fmtTime(d.generado)}</span><span class="badge">${aiBadge}</span></div>
+  <div class="badges"><span class="badge">${confBars(p.confianza)} Confianza ${esc(p.confianza)}</span><span class="badge">Actualizado ${fmtTime(d.generado)}</span><span class="badge">${nm} modelos</span><span class="badge" id="aibadge"></span></div>
 
   <div class="hero" style="--tint:${tint}">
     <div class="hero-temp num" aria-label="Temperatura prevista ahora">${t0(now.temp_c.mean)}<sup>°C</sup></div>
-    <div class="hero-note">${near ? `Estación <b>${esc(near.id)}</b> a ${near.dist_km} km mide <b class="num">${t0(near.temp_c)} °C</b> ahora.` : "Media de 4 modelos para el tramo actual. Sin balizas cercanas con datos fiables."}</div>
+    <div class="hero-note">${near ? `Estación <b>${esc(near.nombre || near.id)}</b> (${esc(near.fuente || "APRS")}) a ${near.dist_km} km mide <b class="num">${t0(near.temp_c)} °C</b> ahora.` : `Media de ${nm} modelos para el tramo actual. Sin estaciones cercanas con datos fiables.`}</div>
     <div class="hero-now">
       ${now.viento_dir_txt ? `<span>Viento <b>${now.viento_dir_txt} ${t0(now.viento_kmh?.mean)} km/h</b></span>` : ""}
       ${now.humedad_pct ? `<span>Humedad <b>${t0(now.humedad_pct.mean)}%</b></span>` : ""}
@@ -230,9 +244,9 @@ function render(d) {
     ${mountain && iso.length ? `<div class="stat"><span class="lbl">Isocero</span><span class="num">${t0(avg(iso))}<small>m</small></span></div>` : ""}
   </div>
 
-  <section class="sec"><div class="label">Lectura <em>${aiBadge}</em></div>
-    <p class="reading">${esc(p.resumen)}</p>
-    <div class="cols">${list("Riesgos", p.riesgos, "risk", "Sin riesgos destacados en las próximas 48 h.")}${list("Mejores ventanas", p.ventanas, "", "No se han identificado ventanas concretas.")}${list("Recomendaciones", p.recomendaciones, "", "—")}</div>
+  <section class="sec" id="reading-sec"><div class="label">Lectura <em id="ailabel"></em></div>
+    <div id="reading"></div>
+    <div id="rcols"></div>
     <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg>
       <span>Apoyo informativo, no sustituye a los avisos oficiales. Antes de salir al monte o al mar, consulta <a href="${esc(lug.warnings_url || "https://www.aemet.es/es/eltiempo/prediccion/avisos")}" target="_blank" rel="noopener">${esc(lug.warnings_label || "AEMET")}</a>.</span></div>
   </section>
@@ -244,30 +258,39 @@ function render(d) {
     <div class="strip" id="strip"></div><div id="charts"></div>
     <div class="legend"><span><i style="border-color:var(--accent)"></i>media de modelos</span><span><i style="border-color:var(--wind);border-top-style:dashed"></i>racha</span><span>Flechas: hacia dónde sopla</span></div></section>
 
+  <section class="sec"><div class="label">Contraste de modelos <em>¿coinciden?</em>
+      <span class="seg" role="group" aria-label="Variable">${[["temp_c", "Temp"], ["lluvia_mm", "Lluvia"], ["viento_kmh", "Viento"], ["racha_kmh", "Racha"], ["nubes_pct", "Nubes"]]
+        .filter(([k]) => c.por_modelo?.[k]).map(([k, l]) => `<button type="button" data-mv="${k}" aria-pressed="${mvar === k}">${l}</button>`).join("")}</span></div>
+    <p class="empty" id="mnote"></p><div class="mchips" id="mchips"></div><div id="mchart" class="chart"></div></section>
+
   <section class="sec"><div class="label">Viento y cielo</div><div class="grid2">
     <div class="card rosebox"><h3>${icon("compass", 16)} Rosa de los vientos <span class="sub">próximos 5 días</span></h3><div id="rose"></div><p class="empty" style="font-size:12px;margin-top:6px">Cada pétalo: de dónde sopla y cuánto tiempo; color = velocidad media.</p></div>
     <div class="card sunbox" id="skybox"><h3>${icon("sun", 16)} Sol y Luna</h3><div class="skeleton" style="height:100px"></div></div></div></section>
 
-  <section class="sec"><div class="label">Observaciones reales <em>balizas APRS con control de calidad</em></div>
-    ${c.estaciones_cercanas?.length ? `<div class="tablewrap"><table><thead><tr><th>Estación</th><th>Dist.</th><th>°C</th><th>Viento</th><th>Racha</th><th>HR</th><th>hPa</th></tr></thead><tbody>
-      ${c.estaciones_cercanas.map((s) => `<tr><td>${esc(s.id)}</td><td class="num">${s.dist_km} km</td><td class="num">${s.temp_c != null ? nf1.format(s.temp_c) : "–"}</td><td class="num">${s.viento_kmh ?? "–"}</td><td class="num">${s.racha_kmh ?? "–"}</td><td class="num">${s.humedad_pct != null ? s.humedad_pct + "%" : "–"}</td><td class="num">${s.presion_hpa != null ? nf1.format(s.presion_hpa) : "–"}</td></tr>`).join("")}</tbody></table></div>`
-      : `<p class="empty">Ninguna baliza APRS con datos fiables en 40 km. El pronóstico se apoya solo en modelos numéricos.</p>`}</section>
+  <section class="sec"><div class="label">Observaciones reales <em>${srcs.length ? esc(srcs.join(" · ")) : "APRS · METAR · XEMA"}</em></div>
+    ${c.estaciones_cercanas?.length ? `<div class="tablewrap"><table><thead><tr><th>Estación</th><th>Fuente</th><th>Dist.</th><th>°C</th><th>Viento</th><th>Racha</th><th>HR</th><th>hPa</th></tr></thead><tbody>
+      ${c.estaciones_cercanas.map((s) => `<tr><td>${esc(s.nombre || s.id)}${s.hora ? `<br><small class="num">${esc(new Date(s.hora).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }))}</small>` : ""}</td><td>${esc(s.fuente || "APRS")}</td><td class="num">${s.dist_km} km</td><td class="num">${s.temp_c != null ? nf1.format(s.temp_c) : "–"}</td><td class="num">${s.viento_kmh ?? "–"}</td><td class="num">${s.racha_kmh ?? "–"}</td><td class="num">${s.humedad_pct != null ? s.humedad_pct + "%" : "–"}</td><td class="num">${s.presion_hpa != null ? nf1.format(s.presion_hpa) : "–"}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">Ninguna estación (APRS, METAR o XEMA) con datos fiables en 40 km. El pronóstico se apoya solo en modelos numéricos.</p>`}</section>
 
   <section class="sec"><div class="label">Datos de origen</div>
-    <p class="empty">Cada cifra del texto se comprueba contra estos datos antes de mostrarse. Modelos: ${esc(c.modelos.join(", "))}. Los mismos datos están disponibles para tu propia IA mediante el <a href="#/learn/mcp">servidor MCP</a>.</p>
+    <p class="empty">Cada cifra del texto se comprueba contra estos datos antes de mostrarse. Modelos (${nm}): ${esc(c.modelos.map((m) => MODEL_NAMES[m] || m).join(", "))}. Los mismos datos están disponibles para tu propia IA mediante el <a href="#/learn/mcp">servidor MCP</a>.</p>
     <details><summary>Ver tabla de datos crudos</summary><div class="tablewrap"><table><thead><tr><th>Tramo</th><th>°C</th><th>Rango</th><th>Viento</th><th>Racha</th><th>mm</th><th>Conf.</th></tr></thead><tbody>
       ${T.map((s) => `<tr><td>${esc(s.time.slice(5, 10).split("-").reverse().join("/"))} ${s.time.slice(11, 13)}h</td><td class="num">${t0(s.temp_c?.mean)}</td><td class="num">${t0(s.temp_c?.min)}…${t0(s.temp_c?.max)}</td><td class="num">${s.viento_kmh?.mean ?? "–"}</td><td class="num">${s.racha_kmh?.max ?? "–"}</td><td class="num">${nf1.format(s.lluvia_mm?.mean ?? 0)}</td><td>${esc(s.confianza)}</td></tr>`).join("")}</tbody></table></div></details></section>
-  <footer class="foot">Meteo Guilda combina modelos numéricos abiertos (ECMWF, DWD ICON, NOAA GFS, Météo-France) con observaciones de estaciones aficionadas. Las estaciones pueden tener errores; el sistema las filtra pero no las garantiza.</footer>`;
+  <footer class="foot">Meteo Guilda combina ${nm} modelos numéricos abiertos (ECMWF, DWD ICON, NOAA GFS, Météo-France, ECCC GEM, UK Met Office, KNMI) con observaciones de balizas APRS, METAR de aeropuertos y estaciones XEMA del Meteocat. Las estaciones pueden tener errores; el sistema filtra las APRS pero no las garantiza.</footer>`;
 
   paintActions();
   $("#actions").addEventListener("click", (e) => {
     const b = e.target.closest("[data-a]"); if (!b) return;
     const item = { name: last.name, sub: last.sub, lat: last.lat, lon: last.lon };
     if (b.dataset.a === "fav") toggleFav(item); else if (b.dataset.a === "pin") toggleFav(item, true);
+    else if (b.dataset.a === "refresh") refreshNow(b);
     else navigator.clipboard?.writeText(location.href).then(() => ctx.toast("Enlace copiado"));
   });
-  $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); }));
+  $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); drawModels(c); }));
   drawCharts(T, mountain);
+  drawModels(c);
+  $$("[data-mv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { mvar = b.dataset.mv; $$("[data-mv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawModels(c); }));
+  paintReading(d);
   renderRose($("#rose"), T);
   api(`/api/astro?lat=${la}&lon=${lo}`).then((a) => {
     const box = $("#skybox"); if (!box) return;
@@ -278,6 +301,63 @@ function render(d) {
       <div class="row" style="margin-top:10px;gap:12px">${moonSvg(a.luna.edad_dias, 46)}<span style="font-size:13px">${esc(a.luna.fase)}<br><span style="color:var(--ink-3)">${a.luna.iluminacion_pct}% iluminada</span></span></div>
       <p class="empty" style="font-size:12px;margin-top:6px">Horas de tu dispositivo.</p>`;
   }).catch(() => {});
+}
+
+/* ---------- lectura: resumen por reglas al instante; la IA llega aparte y no bloquea nada ---------- */
+const readingBody = (p) => `<p class="reading">${esc(p.resumen)}</p>`;
+const readingCols = (p) => `<div class="cols">${list("Riesgos", p.riesgos, "risk", "Sin riesgos destacados en las próximas 48 h.")}${list("Mejores ventanas", p.ventanas, "", "No se han identificado ventanas concretas.")}${list("Recomendaciones", p.recomendaciones, "", "")}</div>`;
+let aiSeq = 0;
+function setReading(p, label, note = "") {
+  $("#reading").innerHTML = readingBody(p) + note;
+  $("#rcols").innerHTML = readingCols(p);
+  $("#ailabel").textContent = label; $("#aibadge").textContent = label;
+}
+async function paintReading(d) {
+  if (!$("#reading")) return;
+  const rules = d.pronostico, my = ++aiSeq;
+  if (!aiOn()) { setReading(rules, "Resumen automático (IA desactivada)", '<p class="ai-note">La IA interna está desactivada. <button class="btn ghost sm" type="button" id="ai-enable">Activar en ajustes</button></p>'); $("#ai-enable")?.addEventListener("click", () => document.getElementById("acctbtn").click()); return; }
+  setReading(rules, "Resumen automático", '<p class="ai-wait"><i></i>La IA está redactando una lectura más completa…</p>');
+  const q = d.lugar.slug ? `place=${d.lugar.slug}` : `lat=${d.datos.ubicacion.lat}&lon=${d.datos.ubicacion.lon}`;
+  try {
+    const r = await api(`/api/forecast/ai?${q}`);
+    if (my !== aiSeq || !$("#reading")) return;
+    if (r.origen === "ia") setReading(r.pronostico, `Lectura de IA · ${(r.modelo_ia || "").split("/").pop().replace(":free", "")}`);
+    else if (r.origen === "sin_ia") setReading(rules, "Resumen automático (sin IA)", '<p class="ai-note">El servidor no tiene IA configurada. Puedes usar tu propia clave en <button class="btn ghost sm" type="button" id="ai-enable">Ajustes</button>.</p>');
+    else setReading(rules, "Resumen automático (la IA no respondió)", '<p class="ai-note">La IA no ha respondido ahora; se muestra el resumen automático. <button class="btn ghost sm" type="button" id="ai-retry">Reintentar</button></p>');
+    $("#ai-enable")?.addEventListener("click", () => document.getElementById("acctbtn").click());
+    $("#ai-retry")?.addEventListener("click", () => paintReading(d));
+  } catch (e) { if (my === aiSeq && $("#reading")) setReading(rules, "Resumen automático", `<p class="ai-note">No se pudo obtener la lectura de IA (${esc(e.message)}).</p>`); }
+}
+
+/* ---------- recargar los datos ---------- */
+async function refreshNow(btn) {
+  if (!lastUrl || btn.classList.contains("spin")) return;
+  const y = ctx.colb.scrollTop, before = lastData?.generado;
+  btn.classList.add("spin");
+  try {
+    const d = await api(lastUrl + (lastUrl.includes("?") ? "&" : "?") + "refresh=1");
+    if (d.generado === before) ctx.toast("Los datos ya están al día (se vuelven a consultar como mucho cada 5 min)");
+    else { render(d); ctx.colb.scrollTop = y; ctx.toast("Datos actualizados"); }
+  } catch (e) { ctx.toast(e.message); }
+  finally { btn.classList.remove("spin"); }
+}
+
+/* ---------- contraste de modelos ---------- */
+const MFMT = { temp_c: (v) => `${nf1.format(v)} °C`, lluvia_mm: (v) => `${nf1.format(v)} mm`, viento_kmh: (v) => `${nf.format(v)} km/h`, racha_kmh: (v) => `${nf.format(v)} km/h`, nubes_pct: (v) => `${nf.format(v)} %` };
+function drawModels(c) {
+  const host = $("#mchart"); if (!host) return;
+  const pm = c.por_modelo?.[mvar];
+  if (!pm) { host.innerHTML = ""; return; }
+  const T = c.tramos.slice(0, horizon), ids = Object.keys(pm);
+  const series = ids.map((id, k) => ({ id, label: MODEL_NAMES[id] || id, color: MODEL_COLORS[k % MODEL_COLORS.length], vals: pm[id].slice(0, horizon) }));
+  const mean = T.map((x) => x[mvar]?.mean ?? null);
+  const spread = T.map((_, i) => { const v = series.map((s) => s.vals[i]).filter((x) => x != null); return v.length > 1 ? Math.max(...v) - Math.min(...v) : null; }).filter((x) => x != null);
+  const sp = spread.length ? avg(spread) : null, unit = { temp_c: "°C", lluvia_mm: "mm", viento_kmh: "km/h", racha_kmh: "km/h", nubes_pct: "%" }[mvar];
+  $("#mnote").textContent = sp == null ? "" : `${ids.length} modelos en esta variable. Discrepancia media entre el más bajo y el más alto: ${nf1.format(sp)} ${unit}. Cuanto más separadas las líneas, menos fiable el pronóstico.`;
+  $("#mchips").innerHTML = series.map((s) => `<button type="button" class="mchip" data-m="${s.id}" style="--c:${s.color}" aria-pressed="${!hiddenModels.has(s.id)}"><i></i>${esc(s.label)}</button>`).join("");
+  $$(".mchip", ctx.colb).forEach((b) => b.addEventListener("click", () => { hiddenModels.has(b.dataset.m) ? hiddenModels.delete(b.dataset.m) : hiddenModels.add(b.dataset.m); drawModels(c); }));
+  renderModels(host, T, series, mean, axisFor, { fmt: MFMT[mvar], zero: mvar !== "temp_c", hidden: hiddenModels, when: (i) => `<b>${wd(T[i].time)} ${hh(T[i].time)}</b>`,
+    lowLabel: mvar === "temp_c" ? "más frío" : "menor", highLabel: mvar === "temp_c" ? "más cálido" : "mayor" });
 }
 
 function drawCharts(all, mountain) {
@@ -306,11 +386,11 @@ function drawCharts(all, mountain) {
 const riskOf = (n) => (!n ? null : n.gust_kmh >= 70 ? [2, "Viento fuerte"] : n.gust_kmh >= 45 || n.rain_24h_mm >= 10 ? [1, "Precaución"] : [0, "Estable"]);
 const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "–");
 
-async function home() {
-  sel = null; req++;
+async function home(keepPane = false) {
+  sel = null; req++; last = null; lastData = null;
   renderPlaces(); renderFavs(); drawPins();
   if (places.length) ctx.fit(places.map((p) => [p.lon, p.lat]));
-  ctx.pane("detail");
+  if (!keepPane) ctx.pane("detail");
   const qth = LS.get("mg-qth", null), at = qth || { lat: places[0]?.lat ?? 42.7, lon: places[0]?.lon ?? 0.85 };
   const my = req;
   ctx.colb.innerHTML = `<div class="d-head"><div><h1>Hoy</h1><p>${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p></div></div>

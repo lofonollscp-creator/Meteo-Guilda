@@ -98,3 +98,11 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS web_sessions_exp ON web_sessions (expires_at);
+
+-- Ajustes de la cuenta (IA interna, proveedor, modelo y claves propias CIFRADAS; ver account.py)
+CREATE TABLE IF NOT EXISTS user_settings (
+  sub        TEXT PRIMARY KEY,
+  settings   JSONB NOT NULL DEFAULT '{}'::jsonb,
+  keys       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

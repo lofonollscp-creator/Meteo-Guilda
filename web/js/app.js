@@ -1,10 +1,9 @@
 import { $, $$, api, esc, LS } from "./util.js";
 import { icon, hydrate } from "./icons.js";
 import { getKey, setKey, syncing, pullSettings, createProfile, call } from "./sync.js";
-import * as forecast from "./forecast.js";
-import * as routes from "./routes.js";
-import * as radio from "./radio.js";
-import * as learn from "./learn.js";
+import * as me from "./me.js";
+import * as account from "./account.js";
+import * as assistant from "./assistant.js";
 
 const BRAND = { forecast: ["Meteo Guilda", "Datos abiertos y balizas reales"], routes: ["Meteo Guilda", "Rutas con el tiempo a la hora de paso"],
   radio: ["Radio Guilda", "Repetidores, propagación y satélites"], learn: ["Guilda", "Meteo y radio, explicadas"] };
@@ -14,8 +13,12 @@ const MARKS = {
   radio: `<svg class="mark" viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 26.5 12 11.5l5 8.5 3.5-5 8 11.5Z"/><path d="M8.46 7.46A5 5 0 0 1 15.54 7.46M5.64 4.64A9 9 0 0 1 18.36 4.64"/></svg>`,
 };
 const MARK_OF = { forecast: "meteo", routes: "meteo", radio: "radio", learn: "both" };
-const SECTIONS = { forecast, routes, radio, learn };
+// Las secciones se cargan bajo demanda: al abrir la app solo se descarga la de Previsión (radio, rutas y «Aprende» pesan ~100 KB más).
+const LOADERS = { forecast: () => import("./forecast.js"), routes: () => import("./routes.js"), radio: () => import("./radio.js"), learn: () => import("./learn.js") };
+const SECTIONS = {};
 const app = $("#app"), cola = $("#cola"), colb = $("#detail");
+let pendingView = null;
+const attach = (h) => { if (h.real || !ctx.map) return; h.real = new maplibregl.Marker({ element: h.el, anchor: h.anchor, draggable: h.draggable }).setLngLat(h.pos).addTo(ctx.map); h.handlers.forEach(([e, f]) => h.real.on(e, f)); };
 const phone = () => matchMedia("(max-width:760px)").matches;
 const root = document.documentElement;
 const isDark = () => (root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
@@ -25,29 +28,43 @@ let mapResolve;
 const ctx = {
   app, cola, colb, map: null, markers: new Set(), onMapClick: null, isDark,
   mapReady: new Promise((r) => (mapResolve = r)), mapLoaded: false,
-  pane(p) { app.dataset.pane = p; $$(".panes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pane === p))); if (p === "map") setTimeout(() => ctx.map?.resize(), 30); },
+  pane(p) {
+    app.dataset.pane = p; $$(".panes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.pane === p)));
+    if (p === "map") { ensureMap(); setTimeout(() => ctx.map?.resize(), 30); }
+    if (p === "detail" && !colb.firstElementChild) {
+      colb.innerHTML = `<div class="empty-detail"><div><h2>Nada seleccionado</h2><p>Elige un lugar o una opción de la lista para ver aquí el detalle.</p><button class="btn" type="button" id="to-list">Ir a la lista</button></div></div>`;
+      $("#to-list")?.addEventListener("click", () => ctx.pane("list"));
+    }
+  },
   hash(path, replace = true) { const h = "#/" + path; if (location.hash !== h) { replace ? history.replaceState(null, "", h) : (location.hash = h); } },
   toast(msg) { const t = Object.assign(document.createElement("div"), { className: "toast", textContent: msg }); document.body.appendChild(t); setTimeout(() => t.remove(), 2200); },
+  place: () => null,                  // la sección de Previsión lo sustituye por el lugar que se está viendo
+  section: () => current,
+  // Los marcadores y encuadres se piden antes de que MapLibre esté cargado (se descarga aparte): se guardan y se colocan al crearse el mapa.
   marker(lon, lat, { label = "", cls = "", onClick, anchor = "left", draggable = false } = {}) {
-    if (!ctx.map) return null;
     const el = document.createElement("div");
     el.className = "pin " + cls;
     el.innerHTML = `<i></i>${label ? `<span>${esc(label)}</span>` : ""}`;
     if (onClick) el.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
-    const m = new maplibregl.Marker({ element: el, anchor, draggable }).setLngLat([lon, lat]).addTo(ctx.map);
-    m.el = el; ctx.markers.add(m);
-    return m;
+    const h = { el, real: null, pos: [lon, lat], anchor, draggable, handlers: [],
+      remove() { ctx.markers.delete(h); h.real?.remove(); },
+      setLngLat(p) { h.pos = Array.isArray(p) ? p : [p.lng, p.lat]; h.real?.setLngLat(h.pos); return h; },
+      getLngLat() { return h.real ? h.real.getLngLat() : { lng: h.pos[0], lat: h.pos[1] }; },
+      on(ev, fn) { h.handlers.push([ev, fn]); h.real?.on(ev, fn); return h; } };
+    ctx.markers.add(h); attach(h);
+    return h;
   },
   removeMarker(m) { m?.remove(); ctx.markers.delete(m); },
-  clearMarkers() { ctx.markers.forEach((m) => m.remove()); ctx.markers.clear(); },
+  clearMarkers() { ctx.markers.forEach((m) => m.real?.remove()); ctx.markers.clear(); },
   fit(points, opts = {}) {
-    if (!ctx.map || !points.length) return;
+    if (!points.length) return;
+    if (!ctx.map) { pendingView = () => ctx.fit(points, opts); return; }
     const b = new maplibregl.LngLatBounds();
     points.forEach(([lo, la]) => b.extend([lo, la]));
     const pad = phone() ? 40 : 70;
     ctx.map.fitBounds(b, { padding: { top: pad + 10, bottom: pad, left: pad, right: pad + 80 }, duration: 600, maxZoom: 12, ...opts });
   },
-  fly(lat, lon, zoom = 9) { ctx.map?.easeTo({ center: [lon, lat], zoom: Math.max(ctx.map.getZoom(), zoom), duration: 700 }); },
+  fly(lat, lon, zoom = 9) { if (!ctx.map) { pendingView = () => ctx.fly(lat, lon, zoom); return; } ctx.map.easeTo({ center: [lon, lat], zoom: Math.max(ctx.map.getZoom(), zoom), duration: 700 }); },
   stationsOn: false,
   stations(on) { ctx.stationsOn = on; if (ctx.map?.getLayer("st")) ctx.map.setLayoutProperty("st", "visibility", on ? "visible" : "none"); if (on) loadStations(); },
   mapCtl(html) { $("#mapctl").innerHTML = html; hydrate($("#mapctl")); },
@@ -77,8 +94,15 @@ async function loadStations() {
     m.getSource("st")?.setData({ type: "FeatureCollection", features: st.map((s) => ({ type: "Feature", geometry: { type: "Point", coordinates: [s.lon, s.lat] }, properties: s })) });
   } catch {}
 }
+// MapLibre pesa ~800 KB: se descarga cuando el navegador está ocioso (escritorio) o al abrir la pestaña Mapa (móvil), no antes de pintar la app.
+let mapStarted = false;
+const loadTag = (tag, attrs) => new Promise((ok, ko) => { const e = Object.assign(document.createElement(tag), attrs); e.onload = ok; e.onerror = ko; document.head.appendChild(e); });
+function ensureMap() {
+  if (mapStarted) return; mapStarted = true;
+  Promise.all([loadTag("link", { rel: "stylesheet", href: "vendor/maplibre-gl.css" }), loadTag("script", { src: "vendor/maplibre-gl.js" })]).then(setupMap)
+    .catch(() => { $("#map").innerHTML = '<p class="empty" style="padding:20px">No se pudo cargar el mapa.</p>'; mapResolve(); });
+}
 function setupMap() {
-  if (typeof maplibregl === "undefined") { $("#map").innerHTML = '<p class="empty" style="padding:20px">No se pudo cargar el mapa.</p>'; mapResolve(); return; }
   const m = (ctx.map = new maplibregl.Map({ container: "map", center: [-1.5, 41.5], zoom: 5.2, attributionControl: { compact: true },
     style: { version: 8, sources: { osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, maxzoom: 18,
       attribution: "© <a href='https://www.openstreetmap.org/copyright' target='_blank' rel='noopener'>OpenStreetMap</a>" } }, layers: [{ id: "osm", type: "raster", source: "osm" }] } }));
@@ -97,17 +121,24 @@ function setupMap() {
     m.on("mouseenter", "st", () => (m.getCanvas().style.cursor = "pointer"));
     m.on("mouseleave", "st", () => (m.getCanvas().style.cursor = ""));
     m.on("moveend", loadStations);
-    ctx.mapLoaded = true; mapResolve();
+    ctx.mapLoaded = true; ctx.markers.forEach(attach); mapResolve();
+    if (pendingView) { const f = pendingView; pendingView = null; f(); }
   });
   m.on("click", (e) => { if (e.originalEvent.__st || e.originalEvent.target.closest?.(".pin")) return; ctx.onMapClick?.(e.lngLat); });
 }
 
 /* ---------- Router ---------- */
 let current = null;
-function route() {
+let routeSeq = 0;
+async function route() {
   let parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  if (!SECTIONS[parts[0]]) parts = ["forecast", ...parts];            // enlaces antiguos: #/garos
-  const [name, ...rest] = parts;
+  if (!LOADERS[parts[0]]) parts = ["forecast", ...parts];             // enlaces antiguos: #/garos
+  const [name, ...rest] = parts, seq = ++routeSeq;
+  if (!SECTIONS[name]) {
+    try { SECTIONS[name] = await LOADERS[name](); }
+    catch { colb.innerHTML = '<div class="err"><strong>No se pudo cargar la sección</strong><p class="empty">Comprueba tu conexión y recarga.</p></div>'; return; }
+  }
+  if (seq !== routeSeq) return;
   if (current !== name) {
     if (current) SECTIONS[current].unmount?.();
     ctx.onMapClick = null; ctx.clearMarkers(); ctx.mapCtl(""); cola.innerHTML = ""; colb.innerHTML = "";
@@ -142,10 +173,11 @@ addEventListener("online", () => ($("#offline").hidden = true));
 const dlg = $("#dlg");
 function openDialog(html) { dlg.innerHTML = html; hydrate(dlg); dlg.showModal?.(); }
 dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
-$("#syncbtn").addEventListener("click", renderSync);
-function renderSync(msg = "") {
+/** Pinta la gestión de la clave de sincronización dentro de `box` (pestaña «Sincronización y API» de los ajustes). */
+function syncView(box, msg = "") {
+  const $ = (s) => box.querySelector(s);
   const k = getKey(), host = location.origin;
-  openDialog(`<h2>Sincronización y acceso por API</h2>
+  box.innerHTML = (`<p class="note" style="margin-top:0">Sincronización y acceso por API</p>
     <p>Guarda favoritos, tu QTH y tu cuaderno de contactos en el servidor con una <b>clave secreta</b>. Con ella los ves desde cualquier dispositivo y también por la API y el MCP. No hay cuentas ni correos.</p>
     ${k ? `<div class="field"><span class="lbl">Tu clave</span><div class="row"><input id="kv" type="password" readonly value="${esc(k)}" style="flex:1"><button class="btn ghost sm" id="kshow" type="button">Ver</button><button class="btn ghost sm" id="kcopy" type="button">Copiar</button></div></div>
       <p class="empty">Quien tenga la clave puede leer y modificar tu cuaderno. Ejemplo de uso:</p>
@@ -154,19 +186,25 @@ function renderSync(msg = "") {
     : `<div class="row"><button class="btn" id="kmk" type="button">Activar sincronización</button></div>
       <div class="field" style="margin-top:16px"><label for="kin">¿Ya tienes una clave?</label><div class="row"><input id="kin" type="password" placeholder="mg_…" style="flex:1"><button class="btn ghost sm" id="kuse" type="button">Usar</button></div></div>`}
     <p class="empty" id="kmsg">${esc(typeof msg === "string" ? msg : "")}</p>
-    <form method="dialog" style="margin-top:12px"><button class="btn ghost sm">Cerrar</button> <a class="btn ghost sm" href="/api/auth/logout">Cerrar sesión de Guilda</a></form>`);
+    `);
+  hydrate(box);
   const m = (t) => ($("#kmsg").textContent = t);
-  $("#kmk")?.addEventListener("click", async () => { try { m("Creando…"); await createProfile(); renderSync("Sincronización activada. Guarda tu clave."); } catch (e) { m(e.message); } });
-  $("#kuse")?.addEventListener("click", async () => { const v = $("#kin").value.trim(); setKey(v); if (await pullSettings()) { renderSync("Clave aceptada. Recarga para ver tus datos."); } else { setKey(null); m("Clave no válida"); } });
+  $("#kmk")?.addEventListener("click", async () => { try { m("Creando…"); await createProfile(); syncView(box, "Sincronización activada. Guarda tu clave."); } catch (e) { m(e.message); } });
+  $("#kuse")?.addEventListener("click", async () => { const v = $("#kin").value.trim(); setKey(v); if (await pullSettings()) { syncView(box, "Clave aceptada. Recarga para ver tus datos."); } else { setKey(null); m("Clave no válida"); } });
   $("#kshow")?.addEventListener("click", () => { const i = $("#kv"); i.type = i.type === "password" ? "text" : "password"; });
   $("#kcopy")?.addEventListener("click", () => navigator.clipboard?.writeText(getKey()).then(() => m("Clave copiada")));
-  $("#kout")?.addEventListener("click", () => { setKey(null); renderSync("Este dispositivo ya no sincroniza."); });
-  $("#kdel")?.addEventListener("click", async () => { if (confirm("¿Borrar del servidor tu cuaderno y ajustes? No se puede deshacer.")) { try { await call("/api/profile", { method: "DELETE" }); } catch {} setKey(null); renderSync("Datos borrados del servidor."); } });
+  $("#kout")?.addEventListener("click", () => { setKey(null); syncView(box, "Este dispositivo ya no sincroniza."); });
+  $("#kdel")?.addEventListener("click", async () => { if (confirm("¿Borrar del servidor tu cuaderno y ajustes? No se puede deshacer.")) { try { await call("/api/profile", { method: "DELETE" }); } catch {} setKey(null); syncView(box, "Datos borrados del servidor."); } });
 }
 ctx.openDialog = openDialog;
 
 hydrate(document);
 paintThemeIcon();
-setupMap();
+account.init(ctx, syncView);
+assistant.init(ctx, account.open);
+$("#acctbtn").addEventListener("click", () => account.open("ia"));
+$("#chatbtn").addEventListener("click", () => assistant.toggle());
+me.load();
 pullSettings().finally(route);
+(window.requestIdleCallback || ((f) => setTimeout(f, 800)))(() => { if (!phone()) ensureMap(); else setTimeout(ensureMap, 6000); }, { timeout: 2500 });
 addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const s = $("#q"); if (s) { e.preventDefault(); s.focus(); } } });

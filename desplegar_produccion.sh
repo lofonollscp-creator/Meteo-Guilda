@@ -63,6 +63,10 @@ command -v docker >/dev/null && docker compose version >/dev/null 2>&1 || parar 
 [ "$(stat -c %a .env)" = 600 ] || { chmod 600 .env; aviso ".env tenía permisos abiertos: puesto a 600"; }
 for v in POSTGRES_PASSWORD MG_ADMIN_TOKEN; do [ -n "$(envv $v)" ] || parar "$v vacío en .env"; done
 [ -n "$(envv MG_OIDC_ISSUER)" ] || parar "Falta MG_OIDC_ISSUER en .env: la web y el MCP exigen iniciar sesión con la cuenta de Guilda Work"
+grep -q '^MG_QA=' .env && parar "MG_QA solo es para la pila de pruebas: quítalo del .env de producción"
+if [ -z "$(envv MG_SECRET_KEY)" ]; then   # clave de cifrado de las claves de IA que guarda cada persona (ajustes de la cuenta); si se pierde, hay que volver a pedirlas
+  python3 -c 'import base64,os;print("\nMG_SECRET_KEY=" + base64.urlsafe_b64encode(os.urandom(32)).decode())' >> .env && aviso "MG_SECRET_KEY generada en .env (cifra las claves de IA de los ajustes; no la cambies ni la pierdas)"
+fi
 [ -n "$(envv OPENROUTER_API_KEY)" ] || aviso "OPENROUTER_API_KEY vacío: se usará el resumen por reglas en lugar de la IA"
 ok "Entorno correcto"
 ANTES="$(git rev-parse --short HEAD)"

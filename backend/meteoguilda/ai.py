@@ -7,6 +7,8 @@ import os
 import re
 import time
 
+from dataclasses import dataclass
+
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
@@ -25,6 +27,83 @@ Reglas estrictas:
 - No contradigas ni sustituyas avisos oficiales; recuerda consultarlos en actividades de riesgo.
 - Responde SOLO con un JSON: {"resumen": str, "riesgos": [str], "ventanas": [str], \
 "recomendaciones": [str], "confianza": "alta"|"media"|"baja"}"""
+
+
+# ---------- proveedores ----------
+PROVIDERS = {
+    "server": {"label": "Servidor de Guilda (modelos gratuitos de OpenRouter)", "key": False},
+    "openrouter": {"label": "OpenRouter (mi clave)", "key": True, "base": BASE},
+    "openai": {"label": "OpenAI (mi clave)", "key": True, "base": "https://api.openai.com/v1"},
+    "anthropic": {"label": "Anthropic · Claude (mi clave)", "key": True, "base": "https://api.anthropic.com/v1"},
+}
+# Sugerencias si no se puede listar el catálogo del proveedor
+SUGGESTED = {"openrouter": ["openrouter/free", "anthropic/claude-sonnet-5-5", "openai/gpt-4o-mini", "google/gemini-2.5-flash"],
+             "openai": ["gpt-4o-mini", "gpt-4o"], "anthropic": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"], "server": []}
+
+
+@dataclass
+class AIConfig:
+    provider: str = "server"
+    model: str = ""
+    api_key: str | None = None
+
+
+def friendly_error(e: Exception) -> str:
+    """Mensaje legible (sin URLs ni cuerpos de respuesta) para los errores de un proveedor de IA."""
+    if isinstance(e, httpx.HTTPStatusError):
+        s = e.response.status_code
+        return {401: "La clave de API no es válida o ha caducado", 402: "Sin saldo en la cuenta del proveedor", 403: "El proveedor ha rechazado la petición (permisos de la clave)",
+                404: "Ese modelo no existe en el proveedor", 429: "El proveedor limita el uso ahora mismo; prueba en unos minutos"}.get(s, f"El proveedor respondió con el error {s}")
+    if isinstance(e, httpx.TimeoutException):
+        return "El proveedor tardó demasiado en responder"
+    if isinstance(e, httpx.HTTPError):
+        return "No se pudo contactar con el proveedor"
+    return str(e)[:160]
+
+
+async def complete(http: httpx.AsyncClient, cfg: AIConfig, system: str, messages: list[dict], *, model: str | None = None,
+                   max_tokens: int = 900, temperature: float = 0.2, timeout: float = 90) -> str:
+    """Una respuesta de texto del proveedor elegido. Lanza httpx.HTTPError / ValueError si falla."""
+    model = model or cfg.model
+    if not model:
+        raise ValueError("Falta el modelo")
+    if cfg.provider == "anthropic":
+        r = await http.post(f"{PROVIDERS['anthropic']['base']}/messages", timeout=timeout,
+                            headers={"x-api-key": cfg.api_key or "", "anthropic-version": "2023-06-01"},
+                            json={"model": model, "max_tokens": max_tokens, "system": system, "messages": messages})
+        r.raise_for_status()
+        return "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text")
+    base = PROVIDERS.get(cfg.provider, PROVIDERS["server"]).get("base", BASE)
+    key = cfg.api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        raise ValueError("Sin clave de API")
+    r = await http.post(f"{base}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {key}", "X-Title": "Meteo Guilda"},
+                        json={"model": model, "temperature": temperature, "max_tokens": max_tokens,
+                              "messages": [{"role": "system", "content": system}, *messages]})
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"] or ""
+
+
+async def list_models(http: httpx.AsyncClient, cfg: AIConfig) -> list[str]:
+    """Modelos que ofrece el proveedor (con la clave de la persona); si falla, las sugerencias."""
+    try:
+        if cfg.provider == "server":
+            return await free_models(http)
+        if cfg.provider == "anthropic":
+            r = await http.get(f"{PROVIDERS['anthropic']['base']}/models", params={"limit": 100}, timeout=15,
+                               headers={"x-api-key": cfg.api_key or "", "anthropic-version": "2023-06-01"})
+            r.raise_for_status()
+            return [m["id"] for m in r.json()["data"]]
+        base = PROVIDERS[cfg.provider]["base"]
+        r = await http.get(f"{base}/models", timeout=15, headers={"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {})
+        r.raise_for_status()
+        ids = sorted(m["id"] for m in r.json()["data"])
+        if cfg.provider == "openai":
+            ids = [i for i in ids if i.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))]
+        return ids[:400]
+    except Exception as e:  # noqa: BLE001
+        log.warning("modelos de %s: %s", cfg.provider, e)
+        return SUGGESTED.get(cfg.provider, [])
 
 
 class AIForecast(BaseModel):
@@ -69,14 +148,20 @@ def build_context(summary: dict, stations: list[dict]) -> dict:
     dias = [{"fecha": d["fecha"], "temp_min_c": round(min(d["t"])) if d["t"] else None,
              "temp_max_c": round(max(d["t"])) if d["t"] else None, "lluvia_mm": round(d["lluvia_mm"], 1),
              "racha_max_kmh": d["racha"]} for d in days.values()]
+    kmh = lambda s: [None if v is None else round(v * 3.6) for v in s]  # noqa: E731
+    por_modelo = {}
+    for var, key in (("temperature_2m", "temp_c"), ("precipitation", "lluvia_mm"), ("wind_speed_10m", "viento_kmh"),
+                     ("wind_gusts_10m", "racha_kmh"), ("cloud_cover", "nubes_pct")):
+        if var in summary.get("por_modelo", {}):
+            por_modelo[key] = {m: (kmh(s) if key in ("viento_kmh", "racha_kmh") else s) for m, s in summary["por_modelo"][var].items()}
     return {"ubicacion": {"lat": summary["lat"], "lon": summary["lon"], "altitud_m": summary["elevation_m"]},
-            "modelos": summary["models"], "tramos": steps, "dias": dias, "estaciones_cercanas": stations}
+            "modelos": summary["models"], "tramos": steps, "dias": dias, "estaciones_cercanas": stations, "por_modelo": por_modelo}
 
 
 def ai_view(context: dict, n: int = 16) -> dict:
     """Subconjunto del contexto que se envía al LLM (48 h por tramos + resumen diario)."""
-    return {**context, "tramos": [{k: v for k, v in t.items() if k not in ("viento_dir",)}
-                                  for t in context["tramos"][:n]]}
+    return {**{k: v for k, v in context.items() if k != "por_modelo"},
+            "tramos": [{k: v for k, v in t.items() if k not in ("viento_dir",)} for t in context["tramos"][:n]]}
 
 
 def _collect(obj, key: str = "") -> list[tuple[str, float]]:
@@ -157,15 +242,28 @@ def _extract_json(txt: str) -> dict:
 
 
 async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None = None,
-                   system: str = SYSTEM, trim: bool = True) -> tuple[AIForecast, str] | None:
-    """Prueba modelos gratuitos en orden; devuelve (pronóstico, modelo) o None."""
-    api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        return None
+                   system: str = SYSTEM, trim: bool = True, cfg: AIConfig | None = None) -> tuple[AIForecast, str] | None:
+    """Con `cfg` de otro proveedor, un intento con el modelo elegido; si no, prueba modelos gratuitos en orden.
+    Devuelve (pronóstico, modelo) o None."""
     if trim:
         context = ai_view(context)
     user = "Datos:\n" + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-    for model in await free_models(client):
+    if cfg and cfg.provider != "server":
+        try:
+            fc = AIForecast(**_extract_json(await complete(client, cfg, system, [{"role": "user", "content": user}], max_tokens=1200)))
+            bad = check(fc, context)
+            if bad:
+                log.warning("%s: cifras sin respaldo %s; descartado", cfg.model, bad)
+                return None
+            return fc, cfg.model
+        except (httpx.HTTPError, KeyError, IndexError, ValueError, ValidationError) as e:
+            log.warning("%s/%s falló: %s", cfg.provider, cfg.model, e)
+            return None
+    api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        return None
+    models = [cfg.model] if cfg and cfg.model else await free_models(client)
+    for model in models:
         try:
             r = await client.post(
                 f"{BASE}/chat/completions", timeout=90,

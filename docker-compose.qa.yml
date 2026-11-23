@@ -1,0 +1,29 @@
+# Pila de PRUEBAS (no toca la de producción): misma web y API, sin puerta de login, base de datos desechable y sin APRS/MCP.
+#   docker compose -f docker-compose.qa.yml -p mgqa up -d --build      → http://127.0.0.1:8099
+#   docker compose -f docker-compose.qa.yml -p mgqa down -v            → la borra
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    mem_limit: 384m
+    environment: {POSTGRES_DB: meteoguilda, POSTGRES_USER: mg, POSTGRES_PASSWORD: qa}
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U mg -d meteoguilda"], interval: 5s, retries: 20}
+  api:
+    build: .
+    mem_limit: 384m
+    command: uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips='*' --workers 1
+    environment:
+      MG_DATABASE_URL: postgresql://mg:qa@db:5432/meteoguilda
+      MG_PREGEN: "0"
+      MG_REPEATERS_SYNC: "1"
+      MG_ADMIN_TOKEN: qa-admin
+      MG_QA: "1"
+      MG_SECRET_KEY: "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE="
+      OPENROUTER_API_KEY: ""
+    depends_on: {db: {condition: service_healthy}}
+  web:
+    image: caddy:2-alpine
+    mem_limit: 96m
+    ports: ["127.0.0.1:8099:80"]
+    volumes: ["./deploy/qa/Caddyfile:/etc/caddy/Caddyfile:ro", "./web:/srv/web:ro"]
+    depends_on: [api]

@@ -24,7 +24,11 @@ def future_data(lat=42.7, lon=0.9, hours=96, gust=8.0):
 @pytest.fixture
 def api(clean, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    main._summaries.clear(); main._forecasts.clear(); main._hits.clear()
+    main._summaries.clear(); main._forecasts.clear(); main._hits.clear(); main._ai.clear()
+
+    async def no_sources(http, lat, lon, km=40):   # sin red: METAR/XEMA se prueban aparte en test_v04
+        return []
+    monkeypatch.setattr(main.sources, "nearby", no_sources)
 
     async def fetch(lat, lon, days=5, client=None):
         return future_data(lat, lon)

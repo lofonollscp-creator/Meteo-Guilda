@@ -1,0 +1,20 @@
+# Caddy de la pila de pruebas: igual que deploy/Caddyfile pero SIN puerta de acceso (forward_auth).
+{
+	auto_https off
+	admin off
+}
+:80 {
+	encode zstd gzip
+	@api path /api/* /.well-known/*
+	handle @api {
+		reverse_proxy api:8000
+	}
+	handle {
+		root * /srv/web
+		@assets path /fonts/* /vendor/* /icons/*
+		header @assets Cache-Control "public, max-age=604800"
+		@dyn not path /fonts/* /vendor/* /icons/*
+		header @dyn Cache-Control "no-cache"
+		file_server
+	}
+}

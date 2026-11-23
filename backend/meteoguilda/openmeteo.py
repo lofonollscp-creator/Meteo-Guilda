@@ -9,7 +9,15 @@ import httpx
 
 URL = "https://api.open-meteo.com/v1/forecast"
 ELEV_URL = "https://api.open-meteo.com/v1/elevation"
-MODELS = ["ecmwf_ifs025", "icon_seamless", "gfs_seamless", "meteofrance_seamless"]
+# Previsión puntual: 8 modelos de centros distintos (más modelos = mejor contraste y confianza). Rutas y portátil usan CORE_MODELS
+# (decenas de puntos por petición: se limita para respetar la cuota gratuita de Open-Meteo).
+CORE_MODELS = ["ecmwf_ifs025", "icon_seamless", "gfs_seamless", "meteofrance_seamless"]
+MODELS = CORE_MODELS + ["ecmwf_aifs025_single", "gem_seamless", "ukmo_seamless", "knmi_seamless"]
+MODEL_LABELS = {"ecmwf_ifs025": "ECMWF IFS", "ecmwf_aifs025_single": "ECMWF AIFS (IA)", "icon_seamless": "DWD ICON",
+                "gfs_seamless": "NOAA GFS", "meteofrance_seamless": "Météo-France (AROME/ARPEGE)", "gem_seamless": "ECCC GEM (Canadá)",
+                "ukmo_seamless": "UK Met Office", "knmi_seamless": "KNMI HARMONIE"}
+# Variables de las que se guarda el valor de cada modelo (para el gráfico de contraste)
+DETAIL_VARS = ("temperature_2m", "precipitation", "wind_speed_10m", "wind_gusts_10m", "cloud_cover")
 VARS = ["temperature_2m", "precipitation", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
         "cloud_cover", "relative_humidity_2m", "surface_pressure", "snowfall", "cape", "freezing_level_height"]
 # Dispersión (máx-mín entre modelos) a partir de la cual baja la confianza: (alta, media)
@@ -44,7 +52,7 @@ async def fetch_many(points: list[tuple[float, float]], days: int = 3,
     client = client or httpx.AsyncClient(timeout=40)
     try:
         r = await client.get(URL, params=_params(",".join(f"{p[0]:.4f}" for p in points),
-                                                 ",".join(f"{p[1]:.4f}" for p in points), days))
+                                                 ",".join(f"{p[1]:.4f}" for p in points), days, CORE_MODELS))
         r.raise_for_status()
         d = r.json()
         return d if isinstance(d, list) else [d]
@@ -78,8 +86,14 @@ def _start_index(data: dict, now: datetime | None = None) -> int:
     return 0
 
 
+def _named_cols(h: dict, var: str) -> list[tuple[str, list]]:
+    """[(modelo, serie)] de una variable; sin sufijo (una sola respuesta) el modelo es 'best_match'."""
+    return [(k[len(var) + 1:] if k != var else "best_match", v) for k, v in h.items()
+            if k == var or k.startswith(var + "_") and k[len(var) + 1:] in _MODEL_SUFFIX]
+
+
 def _cols(h: dict, var: str) -> list[list]:
-    return [v for k, v in h.items() if k == var or k.startswith(var + "_") and k[len(var) + 1:] in _MODEL_SUFFIX]
+    return [v for _, v in _named_cols(h, var)]
 
 
 _MODEL_SUFFIX = set(MODELS) | {"best_match"}
@@ -124,8 +138,10 @@ def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | 
     k0 = _start_index(data, now)
     h = {k: v[k0:] for k, v in data["hourly"].items()}
     times = h["time"]
-    series = {var: _cols(h, var) for var in VARS}
+    named = {var: _named_cols(h, var) for var in VARS}
+    series = {var: [c for _, c in cols] for var, cols in named.items()}
     steps = []
+    detail: dict[str, dict[str, list]] = {v: {m: [] for m, _ in named[v]} for v in DETAIL_VARS if v in named}
     for i in range(0, min(len(times), step_h * max_steps), step_h):
         row: dict = {"time": times[i]}
         confs = []
@@ -151,10 +167,17 @@ def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | 
                         "max": round(max(vals), 1)}
             if var in CONF_VARS:
                 confs.append(_confidence(var, spread, len(vals)))
+        for var, per in detail.items():
+            for m, c in named[var]:
+                chunk = [x for x in c[i:i + step_h] if x is not None]
+                per[m].append(None if not chunk else round(sum(chunk) if var in SUM_VARS else max(chunk) if var in MAX_VARS else statistics.fmean(chunk), 1))
         row["confidence"] = ("baja" if "baja" in confs else "media" if "media" in confs else "alta") if confs else "baja"
         steps.append(row)
+    # solo los modelos que respondieron con datos en esa variable (los regionales no cubren todo el planeta)
+    detail = {v: {m: s for m, s in per.items() if any(x is not None for x in s)} for v, per in detail.items()}
+    used = sorted({m for per in detail.values() for m in per if m in MODELS}, key=MODELS.index)
     return {"lat": data.get("latitude"), "lon": data.get("longitude"), "elevation_m": data.get("elevation"),
-            "models": MODELS, "steps": steps}
+            "models": used or CORE_MODELS, "por_modelo": detail, "steps": steps}
 
 
 def parse_time(s: str) -> datetime:

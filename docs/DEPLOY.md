@@ -110,3 +110,24 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 - **Cuaderno QSL:** el login identifica a la persona, pero el cuaderno sigue usando su clave secreta (`key` en las herramientas o `MG_LOGBOOK_KEY`).
 - **Mover a PRO:** cambia `MG_OIDC_ISSUER` al Hydra de PRO, vuelve a lanzar `desplegar_produccion.sh` y listo; los tokens emitidos con el otro servidor no valen.
 - **Clave de IA:** `OPENROUTER_API_KEY` reutiliza la de La cesta (copiada a `.env`); si la rotas allí, cámbiala también aquí y `docker compose up -d api`.
+
+## 12. Ajustes de la cuenta, IA y asistente (v0.4)
+- **Ajustes** (icono del engranaje, arriba): pestañas *IA*, *Cuenta* y *Sincronización y API*.
+  - **IA interna sí/no**: desactivada, la lectura del pronóstico muestra solo el resumen automático por reglas y el botón del asistente se oculta (es por persona; se guarda en el servidor).
+  - **Proveedor y modelo**: *Servidor* (modelos gratuitos de OpenRouter con la clave del servidor), o la clave propia de **OpenRouter**, **OpenAI** o **Anthropic**. «Ver modelos» lista el catálogo del proveedor y «Probar conexión» hace una llamada mínima.
+  - **Claves propias**: se guardan cifradas con Fernet (`MG_SECRET_KEY`) en `user_settings.keys` y nunca se devuelven (solo «••••1234»). Sin clave utilizable se vuelve al proveedor del servidor, nunca a la clave de otra persona. `desplegar_produccion.sh` genera `MG_SECRET_KEY` si falta; **no la cambies ni la pierdas** (invalidaría las claves guardadas).
+  - **Cuenta**: borrar el historial de búsquedas del dispositivo, borrar ajustes y claves del servidor (`DELETE /api/me`), cerrar sesión.
+- **Asistente** (icono de chat): panel lateral (pantalla completa en móvil) que recibe el lugar que estás viendo: datos de los modelos (sin el detalle por modelo) y, en Radio, los repetidores a menos de 50 km. Usa el proveedor y el modelo de tus ajustes. La conversación se guarda solo en el dispositivo.
+- **Lectura de IA aparte**: `GET /api/forecast` devuelve al instante los datos y el resumen por reglas; la lectura redactada llega después por `GET /api/forecast/ai` (caché de 3 h por lugar y configuración; si falla se recuerda 5 min). Antes la página esperaba a la IA, que podía tardar minutos.
+- API: `GET/PUT /api/me/settings`, `PUT/DELETE /api/me/key`, `GET /api/me/models?provider=`, `POST /api/me/test`, `DELETE /api/me`, `POST /api/assistant`. Todas exigen sesión (como el resto de `/api/*`).
+
+## 13. Modelos y fuentes de datos
+- **8 modelos** en la previsión puntual: ECMWF IFS y AIFS (IA), DWD ICON, NOAA GFS, Météo-France (AROME/ARPEGE), ECCC GEM, UK Met Office y KNMI HARMONIE. Rutas y portátil usan los 4 primeros (decenas de puntos por petición). La web los contrasta en «Contraste de modelos» (una línea por modelo, discrepancia media) y el MCP los devuelve en `por_modelo`.
+- **Observaciones reales** (campo `fuente`): balizas **APRS** (control de calidad propio), **METAR** de aeropuertos (aviationweather.gov, todo el mundo) y estaciones **XEMA** del Meteocat (datos abiertos de Transparència Catalunya; solo se consulta en Cataluña). Sin claves; caché de 10 min; si una fuente falla se ignora.
+- **Cuota de Open-Meteo**: cobra por modelo (8 modelos ≈ coste 8,8 por consulta; límite gratuito 600/min y 10 000/día por IP). Por eso: caché de 2 h, recarga manual (botón ↻) con enfriamiento de 5 min, datos antiguos si la fuente devuelve 429 y refresco horario solo de los 6 lugares principales. Si el tráfico crece: instancia propia o clave comercial de Open-Meteo.
+- **Pendiente de claves** (gratuitas pero con registro por correo): **AEMET OpenData** y **API del Meteocat** (predicción oficial) y **Météo-France** (portal API). Se pueden añadir como una fuente más cuando haya clave.
+
+## 14. Rendimiento y pila de pruebas
+- La web ya no descarga MapLibre (800 KB) antes de pintar: se carga en reposo (escritorio) o al abrir la pestaña Mapa (móvil); las secciones Rutas, Radio y Aprende se cargan al entrar. En móvil con red lenta simulada: datos en pantalla de 3,7 s a 1,7 s y de 414 a 194 KB.
+- **Pila de pruebas** (no toca producción): `docker compose -f docker-compose.qa.yml -p mgqa up -d --build` → `http://127.0.0.1:8099` (sin login, BD desechable, `MG_QA=1`); `docker compose -f docker-compose.qa.yml -p mgqa down -v` la borra.
+- **Capturas y auditoría**: `docker build -t mg-e2e e2e` y, p. ej., `docker run --rm --network host -v $PWD/e2e:/e2e/s:ro -v $PWD/e2e/salida:/out -e RUTAS="forecast/garos" -e ANCHOS=390 mg-e2e node /e2e/s/captura.mjs` (errores de consola, desbordes, tiempos, capturas con scroll y toques); `flujo.mjs` recorre ajustes, chat y búsquedas; `ancho.mjs` comprueba solapes de la barra superior; `rendimiento.mjs` mide con red lenta.

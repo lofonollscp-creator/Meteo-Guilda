@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import time
@@ -18,16 +19,18 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import auth, oauth, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
+from . import account, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
 log = logging.getLogger("api")
-SUMMARY_TTL, AI_TTL = 3600, 3 * 3600
-LIMITS = {"point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600), "profile": (5, 3600),
+# Open-Meteo cobra por modelo (8 modelos ≈ 8,8 de coste por consulta; límite gratuito 600/min y 10 000/día): caché de 2 h y recarga manual con enfriamiento
+SUMMARY_TTL, AI_TTL, REFRESH_COOLDOWN = 2 * 3600, 3 * 3600, 300
+LIMITS = {"assistant": (40, 3600), "ai": (60, 3600), "refresh": (20, 3600), "point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600), "profile": (5, 3600),
           "coverage": (6, 3600), "sat": (60, 3600), "portable": (60, 3600)}
 
 _summaries: dict[tuple, tuple[float, dict]] = {}
 _forecasts: dict[tuple, tuple[float, dict]] = {}
+_ai: dict[tuple, tuple[float, dict]] = {}
 _hits: dict[tuple, deque] = defaultdict(deque)
 _locks: dict[tuple, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -48,13 +51,19 @@ def limit(request: Request, bucket: str) -> None:
     q.append(now)
 
 
-async def get_summary(http: httpx.AsyncClient, lat: float, lon: float) -> dict:
+async def get_summary(http: httpx.AsyncClient, lat: float, lon: float, force: bool = False) -> dict:
     k = _key(lat, lon)
     async with _locks[("s", k)]:
         hit = _summaries.get(k)
-        if hit and time.time() - hit[0] < SUMMARY_TTL:
+        if hit and not force and time.time() - hit[0] < SUMMARY_TTL:
             return hit[1]
-        summary = openmeteo.summarize(await openmeteo.fetch(lat, lon, client=http))
+        try:
+            summary = openmeteo.summarize(await openmeteo.fetch(lat, lon, client=http))
+        except httpx.HTTPError:
+            if hit:   # la fuente limita o falla: mejor datos de hace unas horas que un error
+                log.warning("Open-Meteo no responde; se usan datos guardados de %s", k)
+                return hit[1]
+            raise
         _summaries[k] = (time.time(), summary)
         if len(_summaries) > 500:
             _summaries.pop(next(iter(_summaries)))
@@ -62,7 +71,7 @@ async def get_summary(http: httpx.AsyncClient, lat: float, lon: float) -> dict:
 
 
 def _station_dict(d: float, o) -> dict:
-    return {"id": o.callsign, "dist_km": round(d), "lat": o.lat, "lon": o.lon, "temp_c": o.temp_c,
+    return {"id": o.callsign, "fuente": "APRS", "dist_km": round(d), "lat": o.lat, "lon": o.lon, "temp_c": o.temp_c,
             "viento_kmh": round(o.wind_ms * 3.6) if o.wind_ms is not None else None,
             "racha_kmh": round(o.gust_ms * 3.6) if o.gust_ms is not None else None,
             "humedad_pct": o.humidity, "presion_hpa": o.pressure_hpa}
@@ -74,25 +83,30 @@ def _nearby_sync(lat: float, lon: float, radius_km: float, limit_n: int) -> list
     return [_station_dict(d, o) for d, o in near if flags[o.callsign] == "ok"][:limit_n]
 
 
-async def nearby_stations(lat: float, lon: float, radius_km: float = 40, limit_n: int = 6) -> list[dict]:
-    try:
-        return await asyncio.to_thread(_nearby_sync, lat, lon, radius_km, limit_n)
-    except Exception as e:  # noqa: BLE001  (sin BD, el pronóstico sigue funcionando)
-        log.warning("estaciones no disponibles: %s", e)
-        return []
+async def nearby_stations(lat: float, lon: float, radius_km: float = 40, limit_n: int = 6,
+                          http: httpx.AsyncClient | None = None) -> list[dict]:
+    """Observaciones reales cercanas: balizas APRS (con control de calidad) + METAR + XEMA (Cataluña), de más a menos cerca."""
+    async def aprs() -> list[dict]:
+        try:
+            return await asyncio.to_thread(_nearby_sync, lat, lon, radius_km, limit_n)
+        except Exception as e:  # noqa: BLE001  (sin BD, el pronóstico sigue funcionando)
+            log.warning("estaciones no disponibles: %s", e)
+            return []
+    a, extra = await asyncio.gather(aprs(), sources.nearby(http, lat, lon, radius_km) if http else asyncio.sleep(0, []))
+    rows = sorted([*a, *extra], key=lambda o: o["dist_km"])
+    return rows[:limit_n]
 
 
-async def build_forecast(http: httpx.AsyncClient, lat: float, lon: float) -> dict:
+async def build_forecast(http: httpx.AsyncClient, lat: float, lon: float, force: bool = False) -> dict:
+    """Datos de modelos + observaciones + resumen por reglas. NO espera a la IA (tarda segundos): va aparte en ai_forecast()."""
     k = _key(lat, lon)
     async with _locks[("f", k)]:
         hit = _forecasts.get(k)
-        if hit and time.time() - hit[0] < AI_TTL:
+        if hit and not force and time.time() - hit[0] < SUMMARY_TTL:
             return hit[1]
-        summary = await get_summary(http, lat, lon)
-        ctx = ai.build_context(summary, await nearby_stations(lat, lon))
-        res = await ai.generate(ctx, http)
-        fc, model, origen = (res[0], res[1], "ia") if res else (ai.rules_forecast(ctx), None, "reglas")
-        out = {"pronostico": fc.model_dump(), "origen": origen, "modelo_ia": model, "datos": ctx,
+        summary = await get_summary(http, lat, lon, force)
+        ctx = ai.build_context(summary, await nearby_stations(lat, lon, http=http))
+        out = {"pronostico": ai.rules_forecast(ctx).model_dump(), "origen": "reglas", "modelo_ia": None, "datos": ctx,
                "generado": int(time.time())}
         _forecasts[k] = (time.time(), out)
         if len(_forecasts) > 500:
@@ -100,17 +114,39 @@ async def build_forecast(http: httpx.AsyncClient, lat: float, lon: float) -> dic
         return out
 
 
+def _cfg_sig(cfg: ai.AIConfig) -> str:
+    import hashlib
+    return f"{cfg.provider}:{cfg.model}:{hashlib.sha256((cfg.api_key or '').encode()).hexdigest()[:8] if cfg.api_key else ''}"
+
+
+async def ai_forecast(http: httpx.AsyncClient, lat: float, lon: float, cfg: ai.AIConfig) -> dict:
+    """Lectura de IA del pronóstico (caché de 3 h por lugar y configuración; si falla, se recuerda 5 min y se devuelve el resumen por reglas)."""
+    k = (_key(lat, lon), _cfg_sig(cfg))
+    async with _locks[("a", k)]:
+        hit = _ai.get(k)
+        if hit and time.time() - hit[0] < AI_TTL:
+            return hit[1]
+        base = await build_forecast(http, lat, lon)
+        res = await ai.generate(base["datos"], http, cfg=cfg)
+        out = ({"pronostico": res[0].model_dump(), "origen": "ia", "modelo_ia": res[1]} if res
+               else {"pronostico": base["pronostico"], "origen": "reglas", "modelo_ia": None})
+        out["generado"] = int(time.time())
+        _ai[k] = (time.time() if res else time.time() - AI_TTL + 300, out)
+        if len(_ai) > 500:
+            _ai.pop(next(iter(_ai)))
+        return out
+
+
 async def pregen_loop(http: httpx.AsyncClient):
-    """Regenera los pronósticos de los lugares foco cada 3 h (cuida las cuotas gratuitas)."""
+    """Regenera los datos de los lugares foco cada hora (sin IA: esa se pide al abrir un lugar y se cachea 3 h)."""
     while True:
         for p in PLACES:
             try:
-                _forecasts.pop(_key(p.lat, p.lon), None)
-                await build_forecast(http, p.lat, p.lon)
+                await build_forecast(http, p.lat, p.lon, force=True)
             except Exception as e:  # noqa: BLE001
                 log.warning("pregen %s: %s", p.slug, e)
             await asyncio.sleep(20)
-        await asyncio.sleep(AI_TTL - 20 * len(PLACES))
+        await asyncio.sleep(SUMMARY_TTL - 20 * len(PLACES))
 
 
 async def repeaters_loop(http: httpx.AsyncClient):
@@ -148,6 +184,7 @@ app = FastAPI(title="Meteo Guilda · Radio Guilda", version="0.3", lifespan=life
 H = lambda r: r.app.state.http  # noqa: E731
 app.include_router(oauth.router)
 app.include_router(auth.router)
+app.include_router(account.router)
 
 
 @app.get("/api/health")
@@ -213,26 +250,113 @@ def _point(place: str | None, lat: float | None, lon: float | None) -> tuple[flo
 
 @app.get("/api/forecast")
 async def forecast(request: Request, place: str | None = None, lat: float | None = Query(None, ge=-90, le=90),
-                   lon: float | None = Query(None, ge=-180, le=180), name: str | None = Query(None, max_length=80)):
+                   lon: float | None = Query(None, ge=-180, le=180), name: str | None = Query(None, max_length=80),
+                   refresh: bool = False):
+    """Datos y resumen por reglas, SIN esperar a la IA (la lectura de IA se pide aparte en /api/forecast/ai).
+    `refresh=1` vuelve a consultar los modelos (como mucho una vez cada 5 min por lugar)."""
     la, lo, p = _point(place, lat, lon)
-    if not p and _forecasts.get(_key(la, lo)) is None:
+    hit = _forecasts.get(_key(la, lo))
+    force = False
+    if refresh and (not hit or time.time() - hit[0] > REFRESH_COOLDOWN):
+        limit(request, "refresh")
+        force = True
+    elif not p and hit is None:
         limit(request, "point")
     try:
-        out = await build_forecast(H(request), la, lo)
+        out = await build_forecast(H(request), la, lo, force=force)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Fuente de modelos no disponible: {e}") from e
     lugar = asdict(p) if p else {"name": name or "Punto del mapa", "lat": la, "lon": lo, "kind": "libre"}
     return {**out, "lugar": lugar}
 
 
+@app.get("/api/forecast/ai")
+async def forecast_ai(request: Request, place: str | None = None, lat: float | None = Query(None, ge=-90, le=90),
+                      lon: float | None = Query(None, ge=-180, le=180)):
+    """Lectura de IA con el proveedor y el modelo de los ajustes de la persona. Si la IA está desactivada o falla, origen != 'ia'."""
+    la, lo, _ = _point(place, lat, lon)
+    s, cfg = account.config_for(request)
+    if not s["ai_enabled"]:
+        return {"origen": "desactivada"}
+    if cfg.provider == "server" and not os.environ.get("OPENROUTER_API_KEY"):
+        return {"origen": "sin_ia"}
+    limit(request, "ai")
+    try:
+        return await ai_forecast(H(request), la, lo, cfg)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Fuente de modelos no disponible: {e}") from e
+
+
+ASSISTANT_SYSTEM = """Eres el asistente de Meteo Guilda · Radio Guilda: una app de previsión meteorológica con datos abiertos (varios modelos \
+numéricos y observaciones reales de estaciones APRS, METAR y XEMA), rutas con el tiempo a la hora de paso y herramientas de radioafición \
+(repetidores, propagación, satélites, cuaderno QSL). Responde en español, claro y breve.
+Reglas:
+- Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar»; si no hay datos del lugar, pide que elija uno en la app. No inventes cifras.
+- Si la confianza es baja o los modelos discrepan, dilo. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.
+- En radioafición puedes explicar conceptos y usar los repetidores del bloque de datos si aparece; no inventes frecuencias ni indicativos.
+- Si te piden algo ajeno a la meteorología, la ruta o la radio, responde con brevedad y vuelve al tema."""
+
+
+class ChatMsg(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=4000)
+
+
+class ChatReq(BaseModel):
+    messages: list[ChatMsg] = Field(min_length=1, max_length=40)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    name: str | None = Field(None, max_length=80)
+    section: str | None = Field(None, max_length=20)
+
+
+@app.post("/api/assistant")
+async def assistant(request: Request, req: ChatReq):
+    """Chat con el asistente de IA (proveedor y modelo de los ajustes de la persona). Recibe el lugar que está mirando para dar datos reales."""
+    s, cfg = account.config_for(request)
+    if not s["ai_enabled"]:
+        raise HTTPException(403, "La IA está desactivada en tus ajustes")
+    if cfg.provider == "server" and not os.environ.get("OPENROUTER_API_KEY"):
+        raise HTTPException(503, "El servidor no tiene IA configurada; añade tu propia clave en Ajustes")
+    limit(request, "assistant")
+    http = H(request)
+    system = ASSISTANT_SYSTEM + f"\nHoy es {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
+    if req.lat is not None and req.lon is not None:
+        try:
+            data = await build_forecast(http, req.lat, req.lon)
+            system += f"\n\nDatos del lugar «{req.name or 'punto'}» (lat {req.lat:.3f}, lon {req.lon:.3f}), medias entre modelos:\n" + \
+                json.dumps(ai.ai_view(data["datos"], 16), ensure_ascii=False, separators=(",", ":"))
+            if req.section == "radio":
+                reps = await asyncio.to_thread(radio.repeaters_near, req.lat, req.lon, 50, None, None, 12)
+                system += "\n\nRepetidores cercanos:\n" + json.dumps(
+                    [{k: r.get(k) for k in ("name", "callsign", "band", "freq_mhz", "shift_khz", "tone_hz", "mode", "network", "dist_km")} for r in reps],
+                    ensure_ascii=False, separators=(",", ":"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("contexto del asistente: %s", e)
+    msgs = [{"role": m.role, "content": m.content} for m in req.messages[-14:]]
+    if msgs[0]["role"] != "user":
+        msgs = msgs[1:] or msgs
+    last: Exception | None = None
+    for model in ([cfg.model] if cfg.provider != "server" or cfg.model else (await ai.free_models(http))[:4]):
+        try:
+            text = await ai.complete(http, cfg, system, msgs, model=model, max_tokens=800, temperature=0.3, timeout=75)
+            if text.strip():
+                return {"answer": text.strip(), "model": model}
+        except (httpx.HTTPError, ValueError) as e:
+            last = e
+            log.warning("asistente %s/%s: %s", cfg.provider, model, e)
+    raise HTTPException(502, f"La IA no ha respondido: {ai.friendly_error(last)}" if last else "La IA no ha respondido")
+
+
 @app.get("/api/raw")
 async def raw(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
     """Datos de modelos y balizas SIN texto de IA (para clientes MCP y modelos externos)."""
     limit(request, "point")
-    ctx = ai.build_context(await get_summary(H(request), lat, lon), await nearby_stations(lat, lon))
+    ctx = ai.build_context(await get_summary(H(request), lat, lon), await nearby_stations(lat, lon, http=H(request)))
     return {"datos": ctx, "unidades": {"viento": "km/h", "temp": "°C", "lluvia": "mm/3h", "nieve": "cm/3h",
                                          "isocero": "m", "presion": "hPa", "cape": "J/kg"},
-            "nota": "Media entre modelos ECMWF IFS, DWD ICON, NOAA GFS y Météo-France; 'confianza' según su dispersión."}
+            "nota": "Media entre los modelos de 'modelos' (ECMWF IFS y AIFS, DWD ICON, NOAA GFS, Météo-France, ECCC GEM, UK Met Office, KNMI); "
+                    "'confianza' según su dispersión. 'por_modelo' trae el valor de cada uno. Observaciones: APRS, METAR y XEMA."}
 
 
 @app.get("/api/stations")
@@ -246,9 +370,9 @@ async def stations(south: float = -90, west: float = -180, north: float = 90, ea
 
 
 @app.get("/api/observations")
-async def observations(lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
+async def observations(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
                        km: float = Query(40, gt=0, le=150)):
-    return await nearby_stations(lat, lon, km, 15)
+    return await nearby_stations(lat, lon, km, 15, http=H(request))
 
 
 # ---------- rutas ----------
@@ -287,14 +411,15 @@ async def route(request: Request, req: RouteReq):
         log.warning("balizas/repetidores en ruta: %s", e)
         res["balizas"], res["repetidores"] = [], []
     res["lectura"] = None
-    if req.ia:
+    s_cfg = account.config_for(request) if req.ia else None
+    if req.ia and s_cfg[0]["ai_enabled"]:
         limit(request, "ai_route")
         ctx = {"modo": res["modo"], "distancia_km": res["distancia_km"], "duracion_min": res["duracion_min"],
                "ascenso_m": res["ascenso_m"], "descenso_m": res["descenso_m"], "salida": res["salida"],
                "nivel_global": res["nivel_global"], "nivel_texto": res["nivel_texto"],
                "muestras": [{k: m.get(k) for k in ("d_km", "ele", "t", "nivel", "motivos", "meteo")} for m in res["muestras"]],
                "ventanas": res["ventanas"]}
-        out = await ai.generate(ctx, H(request), system=ai.ROUTE_SYSTEM, trim=False)
+        out = await ai.generate(ctx, H(request), system=ai.ROUTE_SYSTEM, trim=False, cfg=s_cfg[1])
         if out:
             res["lectura"] = {**out[0].model_dump(), "modelo_ia": out[1]}
     return res

@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const b = await chromium.launch(), c = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: "block" }), p = await c.newPage();
+p.on("console", (m) => console.log("consola:", m.text().slice(0, 200)));
+p.on("pageerror", (e) => console.log("ERROR JS:", e.message));
+await p.goto("http://127.0.0.1:8099/#/forecast/garos"); await p.waitForTimeout(3500);
+await p.evaluate(() => { document.querySelector("#detail").scrollTop = 1450; });
+const bb = await p.locator("#charts .chart svg").first().boundingBox(); console.log("bb", JSON.stringify(bb));
+await p.evaluate(() => { window.__ev = []; for (const t of ["pointerdown", "pointermove", "pointerup", "pointercancel", "touchstart"]) document.addEventListener(t, (e) => window.__ev.push(t + ":" + e.pointerType), true); });
+await p.touchscreen.tap(bb.x + bb.width * 0.5, bb.y + bb.height * 0.5); await p.waitForTimeout(500);
+console.log("eventos", await p.evaluate(() => window.__ev.join(" ")));
+console.log("burbujas activas", await p.evaluate(() => [...document.querySelectorAll(".cbubble")].map((e) => e.className + "|" + e.innerHTML.slice(0, 60))));
+await b.close();
