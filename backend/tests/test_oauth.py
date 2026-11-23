@@ -35,7 +35,7 @@ def test_bearer_acepta_clave_fija_y_token_oauth_y_anuncia_el_oauth():
     llamadas = []
     def intro(t):
         llamadas.append(t)
-        return t == "mg_at_bueno"
+        return {"sub": "u1", "email": "ana@guilda.test"} if t == "mg_at_bueno" else None
     c = TestClient(mcp_server._Bearer(inner, "fija", intro, "https://x/.well-known/oauth-protected-resource/mcp"))
     r = c.get("/")
     assert r.status_code == 401 and "resource_metadata" in r.headers["www-authenticate"]

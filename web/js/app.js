@@ -4,6 +4,8 @@ import { getKey, setKey, syncing, pullSettings, createProfile, call } from "./sy
 import * as me from "./me.js";
 import * as account from "./account.js";
 import * as assistant from "./assistant.js";
+import { initPantalla } from "./pantalla.js";
+import { getQth, hasQth, label as qthLabel } from "./qth.js";
 
 const BRAND = { forecast: ["Meteo Guilda", "Datos abiertos y balizas reales"], routes: ["Meteo Guilda", "Rutas con el tiempo a la hora de paso"],
   radio: ["Radio Guilda", "Repetidores, propagación y satélites"], learn: ["Guilda", "Meteo y radio, explicadas"] };
@@ -38,6 +40,7 @@ const ctx = {
   },
   hash(path, replace = true) { const h = "#/" + path; if (location.hash !== h) { replace ? history.replaceState(null, "", h) : (location.hash = h); } },
   toast(msg) { const t = Object.assign(document.createElement("div"), { className: "toast", textContent: msg }); document.body.appendChild(t); setTimeout(() => t.remove(), 2200); },
+  home: () => (hasQth() ? { lat: getQth().lat, lon: getQth().lon, name: qthLabel() } : null),   // «Mi ubicación»
   place: () => null,                  // la sección de Previsión lo sustituye por el lugar que se está viendo
   section: () => current,
   // Los marcadores y encuadres se piden antes de que MapLibre esté cargado (se descarga aparte): se guardan y se colocan al crearse el mapa.
@@ -176,7 +179,12 @@ $("#install").addEventListener("click", async () => {
   if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; $("#install").hidden = true; }
   else if (iOS) openDialog(`<h2>Instalar en iPhone o iPad</h2><p>Pulsa el botón Compartir de Safari y elige <b>Añadir a pantalla de inicio</b>. Se abrirá a pantalla completa y funcionará sin conexión con los últimos datos.</p><form method="dialog"><button class="btn">Entendido</button></form>`);
 });
-if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("/sw.js").catch(() => {});
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  // una versión nueva se aplica sola: al tomar el control el service worker nuevo, la app se recarga una vez (no en la primera instalación)
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
+}
 addEventListener("offline", () => ($("#offline").hidden = false));
 addEventListener("online", () => ($("#offline").hidden = true));
 
@@ -210,6 +218,8 @@ function syncView(box, msg = "") {
 ctx.openDialog = openDialog;
 
 hydrate(document);
+initPantalla();
+caches?.keys().then((k) => { window.__mgv = (k.find((x) => /^guilda-v\d+$/.test(x)) || "").replace("guilda-", ""); }).catch(() => {});
 paintThemeIcon();
 account.init(ctx, syncView);
 assistant.init(ctx, account.open);

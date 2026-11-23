@@ -393,8 +393,8 @@ async def introspect(request: Request, x_admin_token: str | None = Header(defaul
         raise HTTPException(403, "No autorizado")
     tok = (await _form(request)).get("token", "")
     with db.pool().connection() as con:
-        row = con.execute("SELECT email, client_id, expires_at FROM oauth_tokens WHERE access_hash=%s AND revoked_at IS NULL "
+        row = con.execute("SELECT sub, email, client_id, expires_at FROM oauth_tokens WHERE access_hash=%s AND revoked_at IS NULL "
                           "AND expires_at>now()", [sha256(tok)]).fetchone() if tok else None
     if not row:
         return {"active": False}
-    return {"active": True, "email": row["email"], "client_id": row["client_id"], "exp": int(row["expires_at"].timestamp())}
+    return {"active": True, "sub": row["sub"], "email": row["email"], "client_id": row["client_id"], "exp": int(row["expires_at"].timestamp())}

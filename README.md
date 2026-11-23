@@ -5,7 +5,7 @@ APRS, con lectura de IA (OpenRouter, modelos gratuitos), **planificador de rutas
 **espacio para radioaficionados** y un **servidor MCP** para conectar otras IAs.
 Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [API](docs/API.md) · [decisiones](docs/decisiones.md).
 
-## Qué incluye (v0.4)
+## Qué incluye (v0.5)
 **Meteo Guilda**
 - Inicio con el resumen del día, 6 lugares principales (Garòs, Premià de Mar, Tórtoles de Esgueva, Bresca, La Garrovilla,
   Bagnères-de-Bigorre; coordenadas verificadas con dos fuentes), búsqueda libre, favoritos y anclados.
@@ -21,9 +21,10 @@ Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [A
 
 **Plataforma**
 - Webapp instalable (PWA) con modo sin conexión; iconos y marca propios; tema claro/oscuro.
+- **Mi ubicación** compartida por Previsión, Radio, asistente y MCP; **mejor momento para** senderismo, ciclismo, dron, colada, estrellas y playa; **aire, UV y polen**; lectura de IA **a petición** (docs/DEPLOY.md §15). Todo por API y MCP: [docs/MAPA-FUNCIONES.md](docs/MAPA-FUNCIONES.md).
 - **Ajustes de la cuenta** (IA sí/no, proveedor y modelo, claves propias cifradas) y **asistente de IA** con datos reales del lugar (docs/DEPLOY.md §12).
 - 8 modelos para contrastar y observaciones de APRS, METAR y XEMA (§13); la lectura de IA llega aparte y no bloquea la página.
-- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (24 herramientas).
+- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (45 herramientas).
 - Sincronización opcional con clave secreta (favoritos, QTH y cuaderno entre dispositivos, API y MCP).
 
 ## Desarrollo

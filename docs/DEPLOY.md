@@ -131,3 +131,16 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 - La web ya no descarga MapLibre (800 KB) antes de pintar: se carga en reposo (escritorio) o al abrir la pestaña Mapa (móvil); las secciones Rutas, Radio y Aprende se cargan al entrar. En móvil con red lenta simulada: datos en pantalla de 3,7 s a 1,7 s y de 414 a 194 KB.
 - **Pila de pruebas** (no toca producción): `docker compose -f docker-compose.qa.yml -p mgqa up -d --build` → `http://127.0.0.1:8099` (sin login, BD desechable, `MG_QA=1`); `docker compose -f docker-compose.qa.yml -p mgqa down -v` la borra.
 - **Capturas y auditoría**: `docker build -t mg-e2e e2e` y, p. ej., `docker run --rm --network host -v $PWD/e2e:/e2e/s:ro -v $PWD/e2e/salida:/out -e RUTAS="forecast/garos" -e ANCHOS=390 mg-e2e node /e2e/s/captura.mjs` (errores de consola, desbordes, tiempos, capturas con scroll y toques); `flujo.mjs` recorre ajustes, chat y búsquedas; `ancho.mjs` comprueba solapes de la barra superior; `rendimiento.mjs` mide con red lenta.
+
+## 15. v0.5: lectura de IA a petición, Mi ubicación, actividades y aire
+- **La IA ya no se genera sola.** Cada previsión muestra el resumen por reglas y un botón «Generar lectura con IA» (gasta tokens del proveedor elegido). Si ya hay una lectura
+  vigente (caché de 3 h por lugar y configuración) se enseña gratis (`/api/forecast/ai?solo_cache=1`). El asistente de chat también es a petición.
+- **Mi ubicación** (botón en la lista de Previsión, tarjeta en «Hoy», Ajustes → Cuenta): usa la posición del dispositivo, busca el nombre (Nominatim, con caché) y la comparte con Radio
+  (es el mismo QTH `mg-qth`), el asistente («aquí», «donde estoy») y el MCP (`get_my_location`, `get_forecast_here`). Se guarda con precisión de ~100 m en el dispositivo y en la cuenta
+  (`user_settings.settings.home`); se borra desde Ajustes. En iPhone, si se deniega: Ajustes → Privacidad y seguridad → Localización.
+- **Mejor momento para…** (`/api/activity`): puntúa cada tramo de 3 h con reglas por actividad (temperatura, lluvia, viento, rachas, nubes, humedad, tormenta) y da las 3 mejores ventanas;
+  usa los datos ya cacheados (no gasta cuota de Open-Meteo). **Aire, UV y polen** (`/api/air`): Open-Meteo Air Quality (CAMS), caché 1 h.
+- **MCP en nombre de la persona**: el middleware verifica el token OAuth, descarta cualquier cabecera `x-mg-*` del cliente y añade la identidad verificada; las herramientas «de cuenta»
+  llaman a la API con `X-Admin-Token` + `X-Act-As`. Con la clave fija `MG_MCP_TOKEN` no hay identidad y esas herramientas se niegan. 45 herramientas (ver MAPA-FUNCIONES.md).
+- **iPhone en modo app**: la app empieza bajo la barra de estado/isla (`--sat`); si el sistema informa zona segura 0 pero la página llega arriba, se estima por modelo (`pantalla.js`).
+  Ajustes → Cuenta → «Diagnóstico de pantalla» muestra lo que ve el dispositivo y la versión. Una versión nueva del service worker recarga la app sola.

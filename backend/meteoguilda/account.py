@@ -4,6 +4,7 @@ La identidad es la cuenta de Guilda Work (sesión de auth.py). Las claves de API
 se devuelven: la API solo dice si hay clave y sus 4 últimos caracteres."""
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from . import ai, auth, db
 
 log = logging.getLogger("meteoguilda.account")
 router = APIRouter()
-DEFAULTS = {"ai_enabled": True, "provider": "server", "model": ""}
+DEFAULTS = {"ai_enabled": True, "provider": "server", "model": "", "home": None}
 
 
 def _fernet():
@@ -33,6 +34,10 @@ def current(request: Request) -> dict:
     u = auth.session_user(request)
     if u:
         return u
+    # El servicio MCP actúa en nombre de la persona que se autenticó con OAuth: token de administración + identidad (solo red interna de Docker)
+    tok, sub, exp = request.headers.get("x-admin-token"), request.headers.get("x-act-as"), os.environ.get("MG_ADMIN_TOKEN")
+    if sub and tok and exp and hmac.compare_digest(tok, exp):
+        return {"sub": sub[:200], "email": request.headers.get("x-act-email", "")[:200]}
     if os.environ.get("MG_QA"):
         return {"sub": "qa", "email": "qa@local"}
     raise HTTPException(401, "Inicia sesión", headers={"x-auth": "login"})
@@ -74,7 +79,15 @@ def config_for(request: Request) -> tuple[dict, ai.AIConfig]:
     return s, ai.AIConfig(provider=prov, model=s.get("model", "") if prov != "server" or s.get("model") else "", api_key=key)
 
 
+class HomeIn(BaseModel):
+    """«Mi ubicación» (lat/lon redondeadas a ~100 m): la usan el asistente y el MCP para responder sobre dónde está la persona."""
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    name: str | None = Field(None, max_length=80)
+
+
 class SettingsIn(BaseModel):
+    home: HomeIn | None = None
     ai_enabled: bool | None = None
     provider: str | None = None
     model: str | None = Field(None, max_length=120)
@@ -101,6 +114,8 @@ def put_settings(request: Request, body: SettingsIn):
         if body.provider not in ai.PROVIDERS:
             raise HTTPException(422, "Proveedor desconocido")
         s["provider"] = body.provider
+    if "home" in body.model_fields_set:   # null borra la ubicación
+        s["home"] = {"lat": round(body.home.lat, 3), "lon": round(body.home.lon, 3), "name": (body.home.name or "").strip() or None} if body.home else None
     if body.ai_enabled is not None:
         s["ai_enabled"] = body.ai_enabled
     if body.model is not None:

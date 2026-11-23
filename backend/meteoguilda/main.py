@@ -19,13 +19,13 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import account, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
+from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
 log = logging.getLogger("api")
 # Open-Meteo cobra por modelo (8 modelos ≈ 8,8 de coste por consulta; límite gratuito 600/min y 10 000/día): caché de 2 h y recarga manual con enfriamiento
 SUMMARY_TTL, AI_TTL, REFRESH_COOLDOWN = 2 * 3600, 3 * 3600, 300
-LIMITS = {"assistant": (40, 3600), "ai": (60, 3600), "refresh": (20, 3600), "point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600), "profile": (5, 3600),
+LIMITS = {"reverse": (60, 3600), "assistant": (40, 3600), "ai": (60, 3600), "refresh": (20, 3600), "point": (60, 3600), "route": (30, 3600), "search": (120, 600), "ai_route": (10, 3600), "profile": (5, 3600),
           "coverage": (6, 3600), "sat": (60, 3600), "portable": (60, 3600)}
 
 _summaries: dict[tuple, tuple[float, dict]] = {}
@@ -119,9 +119,12 @@ def _cfg_sig(cfg: ai.AIConfig) -> str:
     return f"{cfg.provider}:{cfg.model}:{hashlib.sha256((cfg.api_key or '').encode()).hexdigest()[:8] if cfg.api_key else ''}"
 
 
-async def ai_forecast(http: httpx.AsyncClient, lat: float, lon: float, cfg: ai.AIConfig) -> dict:
+async def ai_forecast(http: httpx.AsyncClient, lat: float, lon: float, cfg: ai.AIConfig, cached_only: bool = False) -> dict:
     """Lectura de IA del pronóstico (caché de 3 h por lugar y configuración; si falla, se recuerda 5 min y se devuelve el resumen por reglas)."""
     k = (_key(lat, lon), _cfg_sig(cfg))
+    if cached_only:   # no genera nada (no gasta tokens): solo devuelve una lectura de IA ya hecha y vigente
+        hit = _ai.get(k)
+        return hit[1] if hit and hit[1].get("origen") == "ia" and time.time() - hit[0] < AI_TTL else {"origen": "pendiente"}
     async with _locks[("a", k)]:
         hit = _ai.get(k)
         if hit and time.time() - hit[0] < AI_TTL:
@@ -272,19 +275,78 @@ async def forecast(request: Request, place: str | None = None, lat: float | None
 
 @app.get("/api/forecast/ai")
 async def forecast_ai(request: Request, place: str | None = None, lat: float | None = Query(None, ge=-90, le=90),
-                      lon: float | None = Query(None, ge=-180, le=180)):
-    """Lectura de IA con el proveedor y el modelo de los ajustes de la persona. Si la IA está desactivada o falla, origen != 'ia'."""
+                      lon: float | None = Query(None, ge=-180, le=180), solo_cache: bool = False):
+    """Lectura de IA con el proveedor y el modelo de los ajustes de la persona. SOLO se genera si se pide (consume tokens): con `solo_cache=1`
+    devuelve la que ya exista y, si no hay, origen 'pendiente' sin llamar a la IA. Si la IA está desactivada o falla, origen != 'ia'."""
     la, lo, _ = _point(place, lat, lon)
     s, cfg = account.config_for(request)
     if not s["ai_enabled"]:
         return {"origen": "desactivada"}
     if cfg.provider == "server" and not os.environ.get("OPENROUTER_API_KEY"):
         return {"origen": "sin_ia"}
-    limit(request, "ai")
+    if not solo_cache:
+        limit(request, "ai")
     try:
-        return await ai_forecast(H(request), la, lo, cfg)
+        return await ai_forecast(H(request), la, lo, cfg, cached_only=solo_cache)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Fuente de modelos no disponible: {e}") from e
+
+
+_reverse: dict[tuple, tuple[float, dict]] = {}
+
+
+@app.get("/api/reverse")
+async def reverse(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Nombre del sitio donde estás (geocodificación inversa de OpenStreetMap/Nominatim, con caché). Sin él, se usa el locator."""
+    k = (round(lat, 3), round(lon, 3))
+    hit = _reverse.get(k)
+    if hit and time.time() - hit[0] < 7 * 86400:
+        return hit[1]
+    limit(request, "reverse")
+    out = {"name": None, "detalle": None, "locator": radio.to_locator(lat, lon)}
+    try:
+        r = await H(request).get("https://nominatim.openstreetmap.org/reverse", timeout=8, headers={"User-Agent": "MeteoGuilda/1.0 (+https://radio.guildawork.com)"},
+                                 params={"format": "jsonv2", "lat": f"{lat:.4f}", "lon": f"{lon:.4f}", "zoom": 14, "accept-language": "es"})
+        r.raise_for_status()
+        a = r.json().get("address", {})
+        town = next((a[x] for x in ("village", "town", "city", "municipality", "suburb", "hamlet", "county") if a.get(x)), None)
+        region = a.get("state") or a.get("region")
+        out.update(name=town or region, detalle=", ".join(x for x in (town, a.get("county") if a.get("county") != town else None, region, a.get("country")) if x))
+    except (httpx.HTTPError, ValueError) as e:
+        log.warning("geocodificación inversa: %s", e)
+        return out                        # sin nombre: no se cachea
+    _reverse[k] = (time.time(), out)
+    if len(_reverse) > 2000:
+        _reverse.pop(next(iter(_reverse)))
+    return out
+
+
+@app.get("/api/air")
+async def air(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Calidad del aire (EAQI), índice UV y polen del punto, ahora y 24 h."""
+    limit(request, "point")
+    try:
+        return await airq.fetch(H(request), lat, lon)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Fuente de calidad del aire no disponible") from e
+
+
+@app.get("/api/activities")
+def activities_list():
+    return [{"id": k, "nombre": v["label"], "franja_h": list(v["horas"])} for k, v in activities.ACTIVITIES.items()]
+
+
+@app.get("/api/activity")
+async def activity(request: Request, activity: str, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180),
+                   min_score: int = Query(65, ge=30, le=95)):
+    """Mejores ventanas de los próximos días para una actividad (senderismo, ciclismo, dron, colada, estrellas, playa) en ese punto."""
+    limit(request, "point")
+    try:
+        return {**activities.plan(await get_summary(H(request), lat, lon), activity, min_score), "ubicacion": {"lat": lat, "lon": lon}}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Fuente de modelos no disponible") from e
 
 
 ASSISTANT_SYSTEM = """Eres el asistente de Meteo Guilda · Radio Guilda: una app de previsión meteorológica con datos abiertos (varios modelos \
@@ -294,6 +356,7 @@ Reglas:
 - Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar»; si no hay datos del lugar, pide que elija uno en la app. No inventes cifras.
 - Si la confianza es baja o los modelos discrepan, dilo. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.
 - En radioafición puedes explicar conceptos y usar los repetidores del bloque de datos si aparece; no inventes frecuencias ni indicativos.
+- Si la persona dice «aquí», «donde estoy» o «mi ubicación», usa el bloque «Datos de Mi ubicación» (si no existe, pídele que la active con el botón «Mi ubicación» de la app).
 - Si te piden algo ajeno a la meteorología, la ruta o la radio, responde con brevedad y vuelve al tema."""
 
 
@@ -308,6 +371,7 @@ class ChatReq(BaseModel):
     lon: float | None = Field(None, ge=-180, le=180)
     name: str | None = Field(None, max_length=80)
     section: str | None = Field(None, max_length=20)
+    home: account.HomeIn | None = None          # «Mi ubicación» (si no llega, se usa la guardada en los ajustes)
 
 
 @app.post("/api/assistant")
@@ -321,18 +385,26 @@ async def assistant(request: Request, req: ChatReq):
     limit(request, "assistant")
     http = H(request)
     system = ASSISTANT_SYSTEM + f"\nHoy es {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
-    if req.lat is not None and req.lon is not None:
-        try:
-            data = await build_forecast(http, req.lat, req.lon)
-            system += f"\n\nDatos del lugar «{req.name or 'punto'}» (lat {req.lat:.3f}, lon {req.lon:.3f}), medias entre modelos:\n" + \
-                json.dumps(ai.ai_view(data["datos"], 16), ensure_ascii=False, separators=(",", ":"))
-            if req.section == "radio":
-                reps = await asyncio.to_thread(radio.repeaters_near, req.lat, req.lon, 50, None, None, 12)
-                system += "\n\nRepetidores cercanos:\n" + json.dumps(
-                    [{k: r.get(k) for k in ("name", "callsign", "band", "freq_mhz", "shift_khz", "tone_hz", "mode", "network", "dist_km")} for r in reps],
-                    ensure_ascii=False, separators=(",", ":"))
-        except Exception as e:  # noqa: BLE001
-            log.warning("contexto del asistente: %s", e)
+    home = req.home.model_dump() if req.home else s.get("home")
+    async def block(title: str, lat: float, lon: float) -> str:
+        data = await build_forecast(http, lat, lon)
+        return f"\n\n{title} (lat {lat:.3f}, lon {lon:.3f}), medias entre modelos:\n" + json.dumps(ai.ai_view(data["datos"], 12), ensure_ascii=False, separators=(",", ":"))
+    try:
+        viewing = req.lat is not None and req.lon is not None
+        if viewing:
+            system += await block(f"Datos del lugar «{req.name or 'punto'}» que está viendo", req.lat, req.lon)
+        if home and not (viewing and abs(home["lat"] - req.lat) < 0.02 and abs(home["lon"] - req.lon) < 0.02):
+            system += await block(f"Datos de Mi ubicación «{home.get('name') or 'sin nombre'}»", home["lat"], home["lon"])
+        elif home:
+            system += f"\n(El lugar que está viendo es su ubicación: «{home.get('name') or 'Mi ubicación'}».)"
+        c0 = (req.lat, req.lon) if viewing else ((home["lat"], home["lon"]) if home else None)
+        if req.section == "radio" and c0:
+            reps = await asyncio.to_thread(radio.repeaters_near, c0[0], c0[1], 50, None, None, 12)
+            system += "\n\nRepetidores cercanos:\n" + json.dumps(
+                [{k: r.get(k) for k in ("name", "callsign", "band", "freq_mhz", "shift_khz", "tone_hz", "mode", "network", "dist_km")} for r in reps],
+                ensure_ascii=False, separators=(",", ":"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("contexto del asistente: %s", e)
     msgs = [{"role": m.role, "content": m.content} for m in req.messages[-14:]]
     if msgs[0]["role"] != "user":
         msgs = msgs[1:] or msgs

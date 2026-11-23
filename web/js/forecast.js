@@ -3,8 +3,9 @@ import { renderCharts, renderStrip, renderModels, MODEL_COLORS, sparkline, ramp,
 import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
 import { aiOn, onChange as onMe, me } from "./me.js";
+import { getQth, hasQth, label as qthLabel, hashOf as qthHash, locate, clearQth, onQth } from "./qth.js";
 
-let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null;
+let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null, offQth = null, locating = false;
 const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
 const saveFavs = () => { LS.set("mg-favs", favs); pushSettings(); };
 const favKey = (lat, lon) => slug(lat, lon);
@@ -21,6 +22,7 @@ export function mount(c) {
       <input id="q" type="search" placeholder="Buscar cualquier lugar…" autocomplete="off" aria-label="Buscar lugar"><kbd>/</kbd>
       <div class="results" id="results" hidden></div></div>
     <a class="group-label home-link" href="#/forecast">Inicio${icon("home", 14)}</a>
+    <div id="myloc"></div>
     <div id="favs"></div>
     <div class="group-label">Lugares principales</div>
     <ul class="places" id="places" role="list"></ul>
@@ -36,12 +38,14 @@ export function mount(c) {
   $("#favs").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
   setupSearch();
   $(".home-link").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", "#/forecast"); home(); });
-  renderPlaces(); renderFavs();
+  renderPlaces(); renderFavs(); renderMyLoc(); loadHomeSnap();
+  offQth = onQth(() => { renderMyLoc(); loadHomeSnap(); drawPins(); });
+  $("#myloc").addEventListener("click", myLocClick);
   api("/api/places").then((p) => { places = p; renderPlaces(); drawPins(); if (!sel) ctx.fit(places.map((x) => [x.lon, x.lat])); }).catch(() => {});
   loadFavSnaps();
 }
 const reloadRecent = () => { recent = LS.get("mg-recent", []); };
-export function unmount() { ctx.stations(false); ctx.place = () => null; offMe?.(); document.removeEventListener("mg:recent", reloadRecent); }
+export function unmount() { offQth?.(); ctx.stations(false); ctx.place = () => null; offMe?.(); document.removeEventListener("mg:recent", reloadRecent); }
 
 /* ---------- listas ---------- */
 function placeRow(go, name, area, snap, { current, pinned } = {}) {
@@ -56,6 +60,41 @@ function renderPlaces() {
   $("#places").innerHTML = places.length ? places.map((p) => placeRow(`#/forecast/${p.slug}`, p.name, p.area, p.now, { current: sel?.slug === p.slug })).join("")
     : Array.from({ length: 6 }, (_, i) => `<li><button class="place"><span class="place-name skeleton">Cargando lugar</span><span class="place-area skeleton">Comarca</span></button></li>`).join("");
 }
+/* ---------- Mi ubicación ---------- */
+const locBtn = (cls = "btn ghost sm") => `<button class="${cls}" type="button" data-loc="go">${icon("pin", 15)} ${hasQth() ? "Actualizar posición" : "Usar mi ubicación"}</button>`;
+function renderMyLoc() {
+  const box = $("#myloc"); if (!box) return;
+  const q = getQth();
+  if (q?.lat == null) {
+    box.innerHTML = `<div class="myloc-cta"><button class="btn" type="button" data-loc="go">${icon("pin", 16)} Usar mi ubicación</button><p>Previsión, aire, actividades y asistente con los datos de donde estás.</p><p class="empty" id="loc-msg" role="status"></p></div>`;
+    return;
+  }
+  const cur = sel && Math.abs(sel.lat - q.lat) < 0.002 && Math.abs(sel.lon - q.lon) < 0.002;
+  box.innerHTML = `<div class="group-label">Mi ubicación</div><ul class="places">${placeRow(qthHash(q), qthLabel(q), q.detalle || (q.locator ? `Locator ${q.locator}` : ""), snaps.__home, { current: cur, pinned: true })}</ul>
+    <div class="myloc-act">${locBtn()}<button class="btn ghost sm" type="button" data-loc="clear">Quitar</button></div><p class="empty" id="loc-msg" role="status"></p>`;
+}
+async function myLocClick(e) {
+  const b = e.target.closest("[data-loc]"), go = e.target.closest("[data-go]");
+  if (go) { location.hash = go.dataset.go; return; }
+  if (!b) return;
+  if (b.dataset.loc === "clear") { clearQth(); snaps.__home = null; ctx.toast("Ubicación quitada"); return; }
+  await useMyLocation();
+}
+export async function useMyLocation(open = false) {
+  if (locating) return;
+  locating = true;
+  const msg = (t) => { const m = $("#loc-msg"); if (m) m.textContent = t; };
+  document.querySelectorAll("[data-loc=go]").forEach((x) => x.setAttribute("disabled", ""));
+  msg("Buscando tu posición…");
+  try { const q = await locate(); ctx.toast("Ubicación actualizada"); msg(""); if (open) location.hash = qthHash(q); }
+  catch (e) { msg(e.message); ctx.toast(e.message.split(".")[0]); }
+  finally { locating = false; document.querySelectorAll("[data-loc=go]").forEach((x) => x.removeAttribute("disabled")); }
+}
+async function loadHomeSnap() {
+  const q = getQth(); if (q?.lat == null) return;
+  try { const r = await api(`/api/snapshot?pts=${q.lat},${q.lon}`); snaps.__home = r[0]?.now; renderMyLoc(); } catch {}
+}
+
 function renderFavs() {
   const f = sortedFavs();
   $("#favs").innerHTML = f.length ? `<div class="group-label">Mis lugares</div><ul class="places">${f.map((x) =>
@@ -74,6 +113,7 @@ function drawPins() {
   ctx.clearMarkers();
   places.forEach((p) => ctx.marker(p.lon, p.lat, { label: p.name, cls: sel?.slug === p.slug ? "on" : "", onClick: () => (location.hash = `#/forecast/${p.slug}`) }));
   favs.forEach((f) => ctx.marker(f.lon, f.lat, { label: f.name, cls: "fav" + (sel?.key === f.key ? " on" : ""), onClick: () => (location.hash = favHash(f)) }));
+  if (hasQth()) ctx.marker(getQth().lon, getQth().lat, { label: qthLabel(), cls: "fav", onClick: () => (location.hash = qthHash()) });
   if (sel?.kind === "point" && !findFav(sel.lat, sel.lon)) ctx.marker(sel.lon, sel.lat, { label: sel.name, cls: "pt on" });
 }
 function toggleFav(item, pin) {
@@ -96,7 +136,8 @@ function setupSearch() {
   async function run() {
     const t = q.value.trim(); items = [];
     let html = "";
-    const mine = sortedFavs().filter((f) => !t || f.name.toLowerCase().includes(t.toLowerCase())).map((f) => ({ ...f, sub: (f.pinned ? "Anclado · " : "Favorito · ") + (f.sub || "") }));
+    const here = hasQth() ? [{ name: "Mi ubicación", sub: qthLabel(), lat: getQth().lat, lon: getQth().lon, mine: true }] : [];
+    const mine = [...(t && !"mi ubicación".includes(t.toLowerCase()) ? [] : here), ...sortedFavs().filter((f) => !t || f.name.toLowerCase().includes(t.toLowerCase())).map((f) => ({ ...f, sub: (f.pinned ? "Anclado · " : "Favorito · ") + (f.sub || "") }))];
     if (!t) {
       html += paint("Mis lugares", mine);
       html += paint("Recientes", recent.filter((r) => !findFav(r.lat, r.lon)).slice(0, 5).map((r) => ({ ...r, recent: true })), "", '<button type="button" data-clear>Borrar todo</button>');
@@ -117,6 +158,7 @@ function setupSearch() {
   }
   const go = (it) => {
     close(); q.value = "";
+    if (it.mine) { location.hash = qthHash(); return; }   // «Mi ubicación» no se guarda en recientes
     recent = [{ name: it.name, sub: it.sub?.replace(/^(Anclado|Favorito) · /, ""), lat: it.lat, lon: it.lon }, ...recent.filter((r) => favKey(r.lat, r.lon) !== favKey(it.lat, it.lon))].slice(0, 8);
     LS.set("mg-recent", recent);
     location.hash = `#/forecast/p/${it.lat.toFixed(4)},${it.lon.toFixed(4)},${encodeURIComponent(it.name)}`;
@@ -258,6 +300,11 @@ function render(d) {
     <div class="strip" id="strip"></div><div id="charts"></div>
     <div class="legend"><span><i style="border-color:var(--accent)"></i>media de modelos</span><span><i style="border-color:var(--wind);border-top-style:dashed"></i>racha</span><span>Flechas: hacia dónde sopla</span></div></section>
 
+  <section class="sec" id="act-sec"><div class="label">Mejor momento para… <em>según la previsión</em></div>
+    <div class="seg actseg" id="actsel" role="group" aria-label="Actividad"></div><div id="actout"><p class="empty">Cargando…</p></div></section>
+
+  <section class="sec" id="air-sec"><div class="label">Aire, UV y polen <em>estimación del modelo CAMS</em></div><div id="airbox"><p class="empty">Cargando…</p></div></section>
+
   <section class="sec"><div class="label">Contraste de modelos <em>¿coinciden?</em>
       <span class="seg" role="group" aria-label="Variable">${[["temp_c", "Temp"], ["lluvia_mm", "Lluvia"], ["viento_kmh", "Viento"], ["racha_kmh", "Racha"], ["nubes_pct", "Nubes"]]
         .filter(([k]) => c.por_modelo?.[k]).map(([k, l]) => `<button type="button" data-mv="${k}" aria-pressed="${mvar === k}">${l}</button>`).join("")}</span></div>
@@ -289,6 +336,8 @@ function render(d) {
   $$("[data-h]", ctx.colb).forEach((b) => b.addEventListener("click", () => { horizon = +b.dataset.h; $$("[data-h]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawCharts(T, mountain); drawModels(c); }));
   drawCharts(T, mountain);
   drawModels(c);
+  lazyLoad("#act-sec", () => loadActivities(la, lo));
+  lazyLoad("#air-sec", () => loadAir(la, lo));
   $$("[data-mv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { mvar = b.dataset.mv; $$("[data-mv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawModels(c); }));
   paintReading(d);
   renderRose($("#rose"), T);
@@ -312,21 +361,85 @@ function setReading(p, label, note = "") {
   $("#rcols").innerHTML = readingCols(p);
   $("#ailabel").textContent = label; $("#aibadge").textContent = label;
 }
+/** Lectura de IA A PETICIÓN: generarla gasta tokens, así que nunca se hace sola. Si ya hay una vigente (caché de 3 h) se muestra gratis. */
 async function paintReading(d) {
   if (!$("#reading")) return;
   const rules = d.pronostico, my = ++aiSeq;
-  if (!aiOn()) { setReading(rules, "Resumen automático (IA desactivada)", '<p class="ai-note">La IA interna está desactivada. <button class="btn ghost sm" type="button" id="ai-enable">Activar en ajustes</button></p>'); $("#ai-enable")?.addEventListener("click", () => document.getElementById("acctbtn").click()); return; }
-  setReading(rules, "Resumen automático", '<p class="ai-wait"><i></i>La IA está redactando una lectura más completa…</p>');
-  const q = d.lugar.slug ? `place=${d.lugar.slug}` : `lat=${d.datos.ubicacion.lat}&lon=${d.datos.ubicacion.lon}`;
+  const q = d.lugar.slug ? `place=${d.lugar.slug}` : `lat=${d.lugar.lat ?? d.datos.ubicacion.lat}&lon=${d.lugar.lon ?? d.datos.ubicacion.lon}`;   // coordenadas pedidas, no las de la rejilla del modelo (misma caché)
+  const openSet = () => document.getElementById("acctbtn").click();
+  if (!aiOn()) { setReading(rules, "Resumen automático (IA desactivada)", '<p class="ai-note">La IA interna está desactivada. <button class="btn ghost sm" type="button" id="ai-enable">Activar en ajustes</button></p>'); $("#ai-enable")?.addEventListener("click", openSet); return; }
+  const own = me.data && me.data.provider !== "server";
+  const offer = (msg = "") => {
+    setReading(rules, "Resumen automático", `<p class="ai-note">${msg}<button class="btn sm" type="button" id="ai-gen">${icon("chat", 15)} Generar lectura con IA</button>
+      <span>${own ? "Usa tu propia clave: consume tokens de tu cuenta." : "Usa la IA del servidor (modelos gratuitos)."}</span></p>`);
+    $("#ai-gen")?.addEventListener("click", generate);
+  };
+  async function generate() {
+    const my2 = ++aiSeq;
+    setReading(rules, "Resumen automático", '<p class="ai-wait"><i></i>La IA está redactando la lectura…</p>');
+    try {
+      const r = await api(`/api/forecast/ai?${q}`);
+      if (my2 !== aiSeq || !$("#reading")) return;
+      if (r.origen === "ia") setReading(r.pronostico, `Lectura de IA · ${(r.modelo_ia || "").split("/").pop().replace(":free", "")}`);
+      else if (r.origen === "sin_ia") { setReading(rules, "Resumen automático (sin IA)", '<p class="ai-note">El servidor no tiene IA configurada. Puedes usar tu propia clave en <button class="btn ghost sm" type="button" id="ai-enable">Ajustes</button>.</p>'); $("#ai-enable")?.addEventListener("click", openSet); }
+      else offer("La IA no ha respondido ahora. ");
+    } catch (e) { if (my2 === aiSeq && $("#reading")) offer(`No se pudo obtener la lectura (${esc(e.message)}). `); }
+  }
+  offer();                                                           // por defecto: resumen por reglas + botón
+  try {                                                              // una lectura ya hecha y vigente se enseña sin gastar nada
+    const r = await api(`/api/forecast/ai?${q}&solo_cache=1`);
+    if (my === aiSeq && r.origen === "ia" && $("#reading")) setReading(r.pronostico, `Lectura de IA · ${(r.modelo_ia || "").split("/").pop().replace(":free", "")}`);
+  } catch {}
+}
+
+/* ---------- actividades y aire: se piden cuando la sección entra en pantalla ---------- */
+function lazyLoad(sel, fn) {
+  const el = $(sel); if (!el) return;
+  if (!("IntersectionObserver" in window)) { fn(); return; }
+  const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); fn(); } }, { rootMargin: "300px" });
+  io.observe(el);
+}
+let actList = null, actSel = LS.get("mg-act", "senderismo");
+async function loadActivities(la, lo) {
+  const sec = $("#act-sec"); if (!sec) return;
   try {
-    const r = await api(`/api/forecast/ai?${q}`);
-    if (my !== aiSeq || !$("#reading")) return;
-    if (r.origen === "ia") setReading(r.pronostico, `Lectura de IA · ${(r.modelo_ia || "").split("/").pop().replace(":free", "")}`);
-    else if (r.origen === "sin_ia") setReading(rules, "Resumen automático (sin IA)", '<p class="ai-note">El servidor no tiene IA configurada. Puedes usar tu propia clave en <button class="btn ghost sm" type="button" id="ai-enable">Ajustes</button>.</p>');
-    else setReading(rules, "Resumen automático (la IA no respondió)", '<p class="ai-note">La IA no ha respondido ahora; se muestra el resumen automático. <button class="btn ghost sm" type="button" id="ai-retry">Reintentar</button></p>');
-    $("#ai-enable")?.addEventListener("click", () => document.getElementById("acctbtn").click());
-    $("#ai-retry")?.addEventListener("click", () => paintReading(d));
-  } catch (e) { if (my === aiSeq && $("#reading")) setReading(rules, "Resumen automático", `<p class="ai-note">No se pudo obtener la lectura de IA (${esc(e.message)}).</p>`); }
+    actList ||= await api("/api/activities");
+    $("#actsel").innerHTML = actList.map((a) => `<button type="button" data-act="${a.id}" aria-pressed="${a.id === actSel}">${esc(a.nombre)}</button>`).join("");
+    $$("[data-act]", sec).forEach((b) => b.addEventListener("click", () => { actSel = b.dataset.act; LS.set("mg-act", actSel); $$("[data-act]", sec).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); showActivity(la, lo); }));
+    showActivity(la, lo);
+  } catch (e) { $("#actout") && ($("#actout").innerHTML = `<p class="empty">No se pudo calcular (${esc(e.message)}).</p>`); }
+}
+const scoreCls = (s) => (s >= 80 ? "lv0" : s >= 60 ? "lv1" : "lv2");
+const winTxt = (w) => `${wd(w.desde)} ${w.desde.slice(11, 16)}–${w.hasta.slice(11, 16)}`;
+async function showActivity(la, lo) {
+  const out = $("#actout"); if (!out) return;
+  out.innerHTML = '<p class="empty">Calculando…</p>';
+  try {
+    const r = await api(`/api/activity?activity=${actSel}&lat=${la}&lon=${lo}`);
+    if (!$("#actout")) return;
+    const n = r.ahora;
+    out.innerHTML = `${n ? `<div class="actnow"><span class="pill ${scoreCls(n.puntuacion)}"><i></i>Ahora ${n.puntuacion}/100</span><span class="empty">${n.en_franja ? (n.motivos.length ? "Penaliza: " + esc(n.motivos.join(", ")) : "Condiciones buenas.") : "Fuera de la franja habitual de esta actividad."}</span></div>` : ""}
+      ${r.ventanas.length ? `<ol class="wins">${r.ventanas.map((w) => `<li><b>${esc(winTxt(w))}</b> <span class="pill ${scoreCls(w.puntuacion)}"><i></i>${w.puntuacion}/100</span>
+        <span class="empty">${w.horas} h${w.temp_c ? ` · ${w.temp_c[0]}–${w.temp_c[1]} °C` : ""} · viento hasta ${w.viento_kmh_max} km/h · ${w.lluvia_mm ? w.lluvia_mm + " mm de lluvia" : "sin lluvia"}</span></li>`).join("")}</ol>`
+        : '<p class="empty">No hay ventanas buenas en los próximos días con los criterios de esta actividad.</p>'}
+      <p class="empty" style="font-size:12px">${esc(r.criterio)}</p>`;
+  } catch (e) { out.innerHTML = `<p class="empty">No se pudo calcular (${esc(e.message)}).</p>`; }
+}
+async function loadAir(la, lo) {
+  const box = $("#airbox"); if (!box) return;
+  try {
+    const a = await api(`/api/air?lat=${la}&lon=${lo}`), c = a.actual, aqiCls = c.aqi == null ? "" : c.aqi < 40 ? "lv0" : c.aqi < 60 ? "lv1" : "lv2", uvCls = c.uv == null ? "" : c.uv < 3 ? "lv0" : c.uv < 8 ? "lv1" : "lv2";
+    if (!$("#airbox")) return;
+    box.innerHTML = `<div class="grid2"><div class="card"><h3>${icon("wind", 16)} Calidad del aire</h3>
+        <div class="kv"><span>Índice europeo (EAQI)</span><span>${c.aqi != null ? `<span class="pill ${aqiCls}"><i></i>${nf.format(c.aqi)} · ${esc(c.aqi_texto)}</span>` : "–"}</span></div>
+        <div class="kv"><span>PM2,5 / PM10</span><span class="num">${c.pm2_5 != null ? nf1.format(c.pm2_5) : "–"} / ${c.pm10 != null ? nf1.format(c.pm10) : "–"} µg/m³</span></div>
+        <div class="kv"><span>Ozono / NO₂</span><span class="num">${c.ozono != null ? nf.format(c.ozono) : "–"} / ${c.no2 != null ? nf1.format(c.no2) : "–"} µg/m³</span></div></div>
+      <div class="card"><h3>${icon("sun", 16)} Índice UV</h3>
+        <div class="kv"><span>Ahora</span><span>${c.uv != null ? `<span class="pill ${uvCls}"><i></i>${nf1.format(c.uv)} · ${esc(c.uv_texto)}</span>` : "–"}</span></div>
+        ${a.uv_max_hoy ? `<div class="kv"><span>Máximo de hoy</span><span class="num">${nf1.format(a.uv_max_hoy.valor)} a las ${esc(a.uv_max_hoy.hora)}</span></div><p class="empty" style="margin-top:6px">${esc(a.uv_max_hoy.consejo)}</p>` : '<p class="empty">Sin datos de UV.</p>'}</div></div>
+      ${a.polen?.length ? `<div class="card" style="margin-top:12px"><h3>Polen (máx. 24 h)</h3><div class="mchips">${a.polen.map((p) => `<span class="mchip"><i style="--c:${p.nivel === "sin polen" ? "#9aa5ad" : p.nivel === "bajo" ? "#2e9e5b" : p.nivel === "moderado" ? "#d9a21b" : "#d9482b"}"></i>${esc(p.tipo)} · ${esc(p.nivel)}</span>`).join("")}</div></div>`
+        : '<p class="empty" style="margin-top:10px">Sin datos de polen (solo Europa y en temporada).</p>'}`;
+  } catch (e) { $("#airbox") && ($("#airbox").innerHTML = `<p class="empty">No se pudo cargar la calidad del aire (${esc(e.message)}).</p>`); }
 }
 
 /* ---------- recargar los datos ---------- */
@@ -403,8 +516,11 @@ async function home(keepPane = false) {
   const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="pcard" data-go="${esc(x.go)}"><span class="pn">${esc(x.name)}</span><span class="pa">${esc(x.area)}</span>
       <span class="pt"><span class="num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</span>
       ${x.snap ? sparkline(x.snap.spark, 180, 34) + `<span class="pm"><span>racha ${x.snap.gust_kmh} km/h</span><span>${nf1.format(x.snap.rain_24h_mm)} mm</span></span>` : ""}</button>`; }).join("");
-  const all = [...places.map((p) => ({ go: `#/forecast/${p.slug}`, name: p.name, area: p.area, snap: p.now })), ...sortedFavs().map((f) => ({ go: favHash(f), name: f.name, area: f.sub || "Mi lugar", snap: snaps[f.key] }))];
-  const draw = () => { const g = $("#pg"); if (!g) return; g.innerHTML = pcards(all); g.onclick = (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; }; };
+  const q0 = getQth(), mineCard = q0?.lat != null ? [{ go: qthHash(q0), name: "Mi ubicación", area: qthLabel(q0), snap: snaps.__home }] : [];
+  const all = [...mineCard, ...places.map((p) => ({ go: `#/forecast/${p.slug}`, name: p.name, area: p.area, snap: p.now })), ...sortedFavs().map((f) => ({ go: favHash(f), name: f.name, area: f.sub || "Mi lugar", snap: snaps[f.key] }))];
+  const cta = q0?.lat != null ? "" : `<button class="pcard cta" type="button" data-loc="go"><span class="pn">${icon("pin", 18)} Mi ubicación</span><span class="pa">Toca para usar la posición de este dispositivo y ver aquí el tiempo de donde estás.</span></button>`;
+  const draw = () => { const g = $("#pg"); if (!g) return; g.innerHTML = cta + pcards(all);
+    g.querySelector("[data-loc=go]")?.addEventListener("click", () => useMyLocation(true)); g.onclick = (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; }; };
   if (places.length) draw(); else api("/api/places").then((p) => { places = p; all.push(...places.map((x) => ({ go: `#/forecast/${x.slug}`, name: x.name, area: x.area, snap: x.now }))); if (my === req) draw(); });
   const [solar, astro, prop] = await Promise.all([api("/api/solar").catch(() => null), api(`/api/astro?lat=${at.lat}&lon=${at.lon}`).catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null)]);
   if (my !== req || !$("#radio-now")) return;

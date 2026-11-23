@@ -1,6 +1,8 @@
 // Ajustes de la cuenta: IA interna (activar, proveedor, modelo, clave propia), cuenta y sincronización/API.
 import { $, $$, api, esc, LS } from "./util.js";
 import { me, load, save, setKey, delKey, aiOn } from "./me.js";
+import { getQth, hasQth, label as qthLabel, locate, clearQth } from "./qth.js";
+import { infoPantalla } from "./pantalla.js";
 
 const json = { "content-type": "application/json" };
 let ctx, dlg, tab = "ia", syncView;
@@ -73,7 +75,11 @@ function bindIA(body) {
 /* ---------- Cuenta ---------- */
 function cuentaHTML() {
   const rec = LS.get("mg-recent", []);
+  const q = getQth();
   return `<p class="note">Has iniciado sesión con tu cuenta de Guilda Work${me.data ? ` como <b>${esc(me.data.email || "")}</b>` : ""}.</p>
+    <div class="field"><span class="lbl">Mi ubicación</span>
+      <p class="note">${hasQth() ? `${esc(qthLabel(q))} · ${q.lat.toFixed(3)}°, ${q.lon.toFixed(3)}°${q.locator ? ` · ${esc(q.locator)}` : ""}` : "Sin ubicación."} La usan Previsión, Radio, el asistente y el MCP. Se guarda en este dispositivo y en tu cuenta (con precisión de unos 100 m).</p>
+      <div class="row"><button class="btn ghost sm" type="button" id="loc-go">Usar la posición de este dispositivo</button><button class="btn ghost sm danger" type="button" id="loc-del" ${hasQth() ? "" : "disabled"}>Quitar mi ubicación</button></div></div>
     <div class="field"><span class="lbl">Búsquedas recientes (este dispositivo)</span>
       <div class="row"><span class="note">${rec.length ? `${rec.length} lugar${rec.length > 1 ? "es" : ""} guardado${rec.length > 1 ? "s" : ""}` : "Ninguna"}</span>
       <button class="btn ghost sm" type="button" id="rec-clear" ${rec.length ? "" : "disabled"}>Borrar historial de búsquedas</button></div></div>
@@ -81,10 +87,13 @@ function cuentaHTML() {
       <p class="note">Tus ajustes de IA y tus claves. El cuaderno QSL y los favoritos se gestionan en «Sincronización y API».</p>
       <div class="row"><button class="btn ghost sm danger" type="button" id="me-del">Borrar mis ajustes y claves</button></div></div>
     <div class="row"><a class="btn ghost sm" href="/api/auth/logout">Cerrar sesión de Guilda</a></div>
-    <p class="note" id="acc-res" role="status"></p>`;
+    <p class="note" id="acc-res" role="status"></p>
+    <details class="field"><summary class="note">Diagnóstico de pantalla</summary><p class="note" id="diag">${esc(infoPantalla())} · versión ${esc(window.__mgv || "?")}</p></details>`;
 }
 function bindCuenta(body) {
   $("#rec-clear", body)?.addEventListener("click", () => { LS.set("mg-recent", []); document.dispatchEvent(new CustomEvent("mg:recent")); paint(); $("#acc-res").textContent = "Historial borrado."; });
+  $("#loc-go", body)?.addEventListener("click", async () => { $("#acc-res").textContent = "Buscando tu posición…"; try { await locate(); paint(); $("#acc-res").textContent = "Ubicación actualizada."; } catch (e) { $("#acc-res").textContent = e.message; } });
+  $("#loc-del", body)?.addEventListener("click", () => { clearQth(); paint(); $("#acc-res").textContent = "Ubicación quitada."; });
   $("#me-del", body)?.addEventListener("click", async () => {
     if (!confirm("¿Borrar tus ajustes de IA y tus claves del servidor? No se puede deshacer.")) return;
     try { await api("/api/me", { method: "DELETE" }); await load(); $("#acc-res").textContent = "Borrado."; } catch (e) { $("#acc-res").textContent = e.message; }

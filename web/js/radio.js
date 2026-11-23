@@ -14,8 +14,8 @@ const MENU = [
   ["qsl", "Cuaderno QSL", "Contactos, confirmaciones y tarjetas", "log"],
   ["herramientas", "Herramientas", "Locator, antenas, Morse, código Q…", "tools"],
 ];
-export const getQth = () => LS.get("mg-qth", null);
-const setQth = (q) => { LS.set("mg-qth", q); pushSettings(); };
+import { getQth, setQth } from "./qth.js";   // el QTH es el mismo que «Mi ubicación» de Previsión (y llega al asistente y al MCP)
+export { getQth };
 const MODE_COL = { FM: "#3a7bd5", DMR: "#c4501b", "D-STAR": "#7a5bd6", C4FM: "#2c8a5a" };
 const fmtF = (f) => f.toFixed(4).replace(".", ",");
 const here = () => loc || (getQth() ? { ...getQth(), name: "Mi QTH" } : { lat: 42.7, lon: 0.847, name: "Garòs" });
