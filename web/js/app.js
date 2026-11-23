@@ -182,7 +182,7 @@ addEventListener("online", () => ($("#offline").hidden = true));
 
 /* ---------- Sincronización y API ---------- */
 const dlg = $("#dlg");
-function openDialog(html) { dlg.innerHTML = html; hydrate(dlg); dlg.showModal?.(); }
+function openDialog(html) { dlg.innerHTML = `<div class="dlg-in">${html}</div>`; hydrate(dlg); dlg.showModal?.(); }   // .dlg-in da el margen interior a todos los diálogos
 dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
 /** Pinta la gestión de la clave de sincronización dentro de `box` (pestaña «Sincronización y API» de los ajustes). */
 function syncView(box, msg = "") {

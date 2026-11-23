@@ -464,3 +464,6 @@ dialog#dlg>div.dlg-in{padding:18px 20px 20px;overflow-y:auto;max-height:calc(100
   .nav #acctbtn{left:8px}.nav #chatbtn{left:44px}.nav #theme{left:80px}.nav #install{left:116px}
   .panes{right:8px}
 }
+dialog#dlg .dlg-in>p{margin:0 0 12px;line-height:1.5}
+dialog#dlg .dlg-in form[method="dialog"]{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+dialog#dlg .dlg-in canvas{max-width:100%;height:auto}
