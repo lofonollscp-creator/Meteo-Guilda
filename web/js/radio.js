@@ -229,7 +229,7 @@ function exportChirp() {
 }
 
 /* ---------- Propagación + línea gris ---------- */
-const CAT = { normal: "#c9ced2", "sub-refracción": "#a9b7c6", "super-refracción": "#e2a548", conducto: "#c0392b" };
+const CAT = { normal: "var(--ok)", "sub-refracción": "var(--ink-3)", "super-refracción": "var(--warn)", conducto: "var(--bad)" };
 export function terminator(date = new Date()) {
   const rad = Math.PI / 180, n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
   const L = (280.46 + 0.9856474 * n) % 360, g = ((357.528 + 0.9856003 * n) % 360) * rad;

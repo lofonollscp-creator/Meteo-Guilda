@@ -24,8 +24,8 @@ export function show(parts) {
   paintMenu($("#lq")?.value || "");
   ctx.pane(!t && matchMedia("(max-width:760px)").matches ? "list" : "detail");
   if (!t) {
-    ctx.colb.innerHTML = `<div class="article"><h1>Aprende meteorología y radioafición</h1><p class="lead">Guías breves para entender los datos que ves en Meteo Guilda y para sacarles partido con una emisora.</p>
-      ${GROUPS.map((g, gi) => `<h2>${g}</h2><ul>${TOPICS.filter((x) => x.g === gi).map((x) => `<li><a href="#/learn/${x.id}"><b>${esc(x.t)}</b></a> — ${esc(x.lead)}</li>`).join("")}</ul>`).join("")}</div>`;
+    ctx.colb.innerHTML = `<div class="learn-home"><h1>Aprende meteorología y radioafición</h1><p class="lead">Guías breves para entender los datos que ves en Meteo Guilda y para sacarles partido con una emisora.</p>
+      ${GROUPS.map((g, gi) => { const l = TOPICS.filter((x) => x.g === gi); return `<div class="gh"><h2>${g}</h2><span>${l.length} guías</span></div><div class="gcards">${l.map((x) => `<a class="gc" href="#/learn/${x.id}"><b>${esc(x.t)}</b><span>${esc(x.lead)}</span></a>`).join("")}</div>`; }).join("")}</div>`;
     return;
   }
   const i = TOPICS.indexOf(t), prev = TOPICS[i - 1], next = TOPICS[i + 1];

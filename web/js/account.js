@@ -51,10 +51,17 @@ function iaHTML() {
         <div class="row"><input id="ai-model" type="text" list="ai-models" autocomplete="off" value="${esc(d.model || "")}" placeholder="${p === "server" ? "Automático" : (P[p]?.suggested?.[0] || "nombre del modelo")}">
           <datalist id="ai-models">${(P[p]?.suggested || []).map((m) => `<option value="${esc(m)}">`).join("")}</datalist>
           <button class="btn ghost sm" type="button" id="ai-list">Ver modelos</button></div></div>
+      ${p === "server" ? '<div class="ai-status" id="ai-status" aria-live="polite"><div class="skeleton" style="height:70px;border-radius:16px"></div></div>' : ""}
       <div class="row"><button class="btn sm" type="button" id="ai-test">Probar conexión</button><span id="ai-res" class="note" role="status"></span></div>
     </div>`;
 }
 function bindIA(body) {
+  if ($("#ai-status", body)) api("/api/me/ai-status").then((r) => {
+    const box = $("#ai-status", body); if (!box) return;
+    const pill = (m) => m.estado === "disponible" ? '<span class="pill lv0"><i></i>disponible</span>' : m.estado === "pausado" ? `<span class="pill lv1"><i></i>${m.motivo === "429" ? "saturado" : "en pausa"} · ${Math.max(1, Math.round(m.segundos / 60))} min</span>` : '<span class="pill"><i></i>sin probar</span>';
+    box.innerHTML = r.modelos.length ? `<h3>Estado de los modelos gratuitos</h3>${r.modelos.map((m) => `<div class="mh"><span>${esc(m.modelo.split("/").pop().replace(":free", ""))}</span>${pill(m)}</div>`).join("")}<p class="note">${esc(r.nota)}</p>`
+      : `<h3>Estado de los modelos gratuitos</h3><p class="note">Aún no se ha usado ninguno desde el último reinicio del servidor.</p>`;
+  }).catch(() => { const box = $("#ai-status", body); if (box) box.remove(); });
   const msg = (t, cls = "") => { const r = $("#ai-res", body); if (r) { r.className = "note " + cls; r.textContent = t; } };
   $("#ai-on", body)?.addEventListener("change", async (e) => { try { await save({ ai_enabled: e.target.checked }); } catch (er) { msg(er.message, "bad"); } paint(); });
   $("#ai-prov", body)?.addEventListener("change", async (e) => { try { await save({ provider: e.target.value, model: "" }); } catch (er) { msg(er.message, "bad"); } paint(); });

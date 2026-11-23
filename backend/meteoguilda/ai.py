@@ -258,6 +258,19 @@ def note(model: str, kind: str | None) -> None:
         h["fail"], h["until"], h["kind"] = time.time(), time.time() + _PAUSA.get(kind, 600), kind
 
 
+def estado_modelos(now: float | None = None) -> list[dict]:
+    """Estado de los modelos gratuitos que se han probado desde el arranque: disponible, en pausa (con segundos que faltan y motivo) o sin respuesta reciente."""
+    now = time.time() if now is None else now
+    out = []
+    for m, h in _health.items():
+        pausa = h.get("until", 0) - now
+        estado = "pausado" if pausa > 0 else "disponible" if h.get("ok") else "sin probar"
+        out.append({"modelo": m, "estado": estado, "segundos": max(0, round(pausa)), "motivo": h.get("kind") if pausa > 0 else None,
+                    "ultimo_ok": h.get("ok") or None})
+    out.sort(key=lambda x: (x["estado"] != "disponible", -(x["ultimo_ok"] or 0)))
+    return out
+
+
 def kind_of(e: Exception) -> str:
     if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (429, 503, 502):
         return "429"

@@ -14,6 +14,7 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/activities` · `GET /api/activity?activity=&lat=&lon=&min_score=` | Actividades y sus mejores ventanas (puntuación 0-100 por tramos de 3 h) |
 | `GET /api/cuota` | Uso de Open-Meteo (peticiones por minuto, hora y día frente al límite gratuito) y si hay freno por 429 |
 | `GET /api/compare?pts=lat,lon,nombre;...` | Compara 2-4 lugares: cifras de 48 h, series y veredicto |
+| `GET /api/me/ai-status` | Estado de los modelos gratuitos de la IA (disponible / en pausa y minutos que faltan); requiere sesión |
 | `GET /api/mar?lat=&lon=` | Estado del mar: oleaje, mar de fondo, periodo y agua, ahora y 48 h (`hay_mar=false` tierra adentro) |
 | `GET /api/air?lat=&lon=` | Calidad del aire (EAQI), UV y polen: ahora, máximo de hoy y 24 h |
 | `GET /api/reverse?lat=&lon=` | Nombre del sitio (municipio, comarca, región) y locator |

@@ -223,6 +223,7 @@ caches?.keys().then((k) => { window.__mgv = (k.find((x) => /^guilda-v\d+$/.test(
 paintThemeIcon();
 account.init(ctx, syncView);
 assistant.init(ctx, account.open);
+assistant.mountAsk(colb);
 $("#acctbtn").addEventListener("click", () => account.open("ia"));
 $("#chatbtn").addEventListener("click", () => assistant.toggle());
 me.load();

@@ -160,6 +160,7 @@ function setupSearch() {
   async function run() {
     const t = q.value.trim(); items = [];
     let html = "";
+    if (t.length >= 3 && aiOn()) { const it = { ai: true, q: t }; items.push(it); html += `<button class="r r-ai" data-i="0" type="button"><span class="ic2">${icon("spark", 16)}</span><span class="grow"><b>Preguntar a Guilda: «${esc(t.length > 48 ? t.slice(0, 46) + "…" : t)}»</b><small>Respuesta con datos reales, cifra a cifra</small></span></button>`; }
     const here = hasQth() ? [{ name: qthLabel(), sub: "Mi ubicación" + (getQth().locator ? ` · ${getQth().locator}` : ""), lat: getQth().lat, lon: getQth().lon, mine: true }] : [];
     const mine = [...(t && !"mi ubicación".includes(t.toLowerCase()) ? [] : here), ...sortedFavs().filter((f) => !t || f.name.toLowerCase().includes(t.toLowerCase())).map((f) => ({ ...f, sub: (f.pinned ? "Anclado · " : "Favorito · ") + (f.sub || "") }))];
     if (!t) {
@@ -182,6 +183,7 @@ function setupSearch() {
   }
   const go = (it) => {
     close(); q.value = "";
+    if (it.ai) { q.blur(); ctx.ask?.(it.q); return; }
     if (it.mine) { location.hash = qthHash(); return; }   // «Mi ubicación» no se guarda en recientes
     recent = [{ name: it.name, sub: it.sub?.replace(/^(Anclado|Favorito) · /, ""), lat: it.lat, lon: it.lon }, ...recent.filter((r) => favKey(r.lat, r.lon) !== favKey(it.lat, it.lon))].slice(0, 8);
     LS.set("mg-recent", recent);
@@ -193,7 +195,7 @@ function setupSearch() {
     const bs = $$(".r", box);
     if (e.key === "Escape") { close(); q.blur(); }
     else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); idx = (idx + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length; bs.forEach((b, i) => b.classList.toggle("on", i === idx)); bs[idx]?.scrollIntoView({ block: "nearest" }); }
-    else if (e.key === "Enter") { const it = items[idx >= 0 ? idx : 0]; if (it) go(it); }
+    else if (e.key === "Enter") { const it = idx >= 0 ? items[idx] : (e.ctrlKey || e.metaKey ? items.find((i) => i.ai) : items.find((i) => !i.ai)) || items[0]; if (it) go(it); }
   });
   box.addEventListener("mousedown", (e) => e.preventDefault());
   box.addEventListener("click", (e) => {
@@ -315,7 +317,7 @@ function render(d) {
 
   <section class="sec" id="reading-sec"><div class="label">Lectura <em id="ailabel"></em></div>
     <div id="reading"></div>
-    <div id="rcols"></div>
+    <div id="rcols"></div>${aiOn() ? `<div class="row" style="margin-top:18px;gap:10px"><button class="btn ai sm" type="button" data-askabout>${icon("spark", 14)} Preguntar sobre esto</button></div>` : ""}
     <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg>
       <span>Apoyo informativo, no sustituye a los avisos oficiales. Antes de salir al monte o al mar, consulta <a href="${esc(lug.warnings_url || "https://www.aemet.es/es/eltiempo/prediccion/avisos")}" target="_blank" rel="noopener">${esc(lug.warnings_label || "AEMET")}</a>.</span></div>
   </section>
@@ -375,6 +377,7 @@ function render(d) {
   loadMar(la, lo);
   $$("[data-mv]", ctx.colb).forEach((b) => b.addEventListener("click", () => { mvar = b.dataset.mv; $$("[data-mv]", ctx.colb).forEach((x) => x.setAttribute("aria-pressed", String(x === b))); drawModels(c); }));
   paintReading(d);
+  $("[data-askabout]")?.addEventListener("click", () => ctx.ask?.(`¿Qué debo tener en cuenta en ${lug.name} en los próximos días?`));
   renderRose($("#rose"), T);
   api(`/api/astro?lat=${la}&lon=${lo}`).then((a) => {
     const box = $("#skybox"); if (!box) return;
@@ -429,6 +432,25 @@ async function paintReading(d) {
 
 /* ---------- actividades y aire: se piden cuando la sección entra en pantalla ---------- */
 /* ---------- avisos oficiales (AEMET/Meteoalerta): la capa de seguridad, siempre antes que cualquier lectura ---------- */
+/* «Tu día, según Guilda»: tres avisos útiles con datos reales (aviso oficial, mejor ventana para caminar y próximo paso de satélite); cada uno lleva a una pregunta */
+async function loadInsights(at, my) {
+  const box = $("#insights"); if (!box) return;
+  const q = `lat=${at.lat}&lon=${at.lon}`, nm = at.name || places[0]?.name || "";
+  const [av, act, sat] = await Promise.all([api(`/api/avisos?${q}`).catch(() => null), api(`/api/activity?activity=senderismo&${q}`).catch(() => null), api(`/api/satellites/passes?${q}&hours=24&min_el=15`).catch(() => null)]);
+  if (my !== req || !$("#insights")) return;
+  const dia = (iso) => new Date(iso).toLocaleDateString("es", { weekday: "long" }), hm = (iso) => iso.slice(11, 16), rows = [];
+  const a = av?.avisos?.[0];
+  if (a) rows.push({ ic: "warn", cls: `lv-${a.color}`, t: `Aviso ${a.color}: ${a.evento}`, s: `${a.zona}${a.hasta ? ` · hasta ${new Date(a.hasta).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}`, ask: `¿Qué implica el aviso ${a.color} de ${a.evento} en ${a.zona}?`, cta: "Preguntar" });
+  const w = act?.ventanas?.[0];
+  if (w) rows.push({ ic: "route", t: `Mejor ventana para caminar: ${dia(w.desde)} ${hm(w.desde)}–${hm(w.hasta)}`, s: `${w.puntuacion}/100${w.temp_c ? ` · ${w.temp_c[0]}–${w.temp_c[1]} °C` : ""} · viento hasta ${w.viento_kmh_max} km/h${w.lluvia_mm ? ` · ${nf1.format(w.lluvia_mm)} mm` : " · sin lluvia"}`, ask: `Prepárame una salida a caminar el ${dia(w.desde)} de ${hm(w.desde)} a ${hm(w.hasta)}`, cta: "Preguntar" });
+  const p = sat?.pasos?.[0];
+  if (p) rows.push({ ic: "satellite", t: `${p.satelite} pasa a las ${clock(p.aos)}, a ${p.max_el}° de altura`, s: `${Math.round(p.duracion_s / 60)} min · sale por ${compass(p.aos_az)}`, href: "#/radio/satelites", cta: "Ver paso" });
+  if (!rows.length) return;
+  box.hidden = false;
+  box.innerHTML = `<div class="insights"><div class="ins-head"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Tu día, según Guilda</span><span class="small">${esc(nm)}</span></div>
+    ${rows.map((r, i) => `<div class="ins"><span class="ic2 ${r.cls || ""}">${icon(r.ic, 19)}</span><div><b>${esc(r.t)}</b><span class="s">${esc(r.s)}</span></div>${r.href ? `<a class="askb" href="${r.href}">${r.cta}</a>` : `<button class="askb" type="button" data-i="${i}">${r.cta}</button>`}</div>`).join("")}</div>`;
+  box.onclick = (e) => { const b = e.target.closest("[data-i]"); if (b) ctx.ask?.(rows[+b.dataset.i].ask); };
+}
 async function loadAvisos(la, lo, my) {
   const box = $("#avisos"); if (!box) return;
   let r; try { r = await api(`/api/avisos?lat=${la}&lon=${lo}`); } catch { return; }
@@ -676,13 +698,16 @@ async function home(keepPane = false) {
   if (!keepPane) ctx.pane("detail");
   const qth = LS.get("mg-qth", null), at = qth || { lat: places[0]?.lat ?? 42.7, lon: places[0]?.lon ?? 0.85 };
   const my = req;
-  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Hoy</h1><p>${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p></div></div>
+  const hr = new Date().getHours(), greet = hr < 6 ? "Buenas noches" : hr < 13 ? "Buenos días" : hr < 21 ? "Buenas tardes" : "Buenas noches";
+  ctx.colb.innerHTML = `<div class="d-head home-head"><div><p class="eyebrow">${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p><h1>${greet}</h1></div></div>
+    <section class="sec insights-sec" id="insights" aria-label="Tu día, según Guilda" hidden></section>
     <section class="sec" style="margin-top:22px"><div class="label">Tus lugares</div><div class="pgrid" id="pg">${Array.from({ length: 6 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div></section>
     <section class="sec"><div class="label">Radio ahora <em><a href="#/radio">abrir Radio Guilda</a></em></div><div class="grid2" id="radio-now"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:120px"></div></div></section>
     <section class="sec"><div class="label">Atajos</div><div class="quick">
       <a href="#/routes">${icon("route")}Planificar ruta</a><a href="#/radio/repetidores">${icon("tower")}Repetidores cerca</a>
       <a href="#/radio/satelites">${icon("satellite")}Pasos de satélites</a><a href="#/radio/portatil">${icon("tent")}Salir a operar</a>
       <a href="#/radio/qsl">${icon("log")}Cuaderno QSL</a><a href="#/learn">${icon("book")}Aprende</a></div></section>`;
+  loadInsights(at, my);
   const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="pcard" data-go="${esc(x.go)}"><span class="pn">${esc(x.name)}</span><span class="pa">${esc(x.area)}</span>
       <span class="pt"><span class="num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</span>
       ${x.snap ? sparkline(x.snap.spark, 180, 34) + `<span class="pm"><span>racha ${x.snap.gust_kmh} km/h</span><span>${nf1.format(x.snap.rain_24h_mm)} mm</span></span>` : ""}</button>`; }).join("");

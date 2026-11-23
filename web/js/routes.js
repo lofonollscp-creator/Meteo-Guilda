@@ -1,6 +1,7 @@
 import { $, $$, api, esc, nf, nf1, t0, LS, debounce, fmtMin, fmtDT, distKm, compass } from "./util.js";
 import { renderCharts, renderProfile } from "./charts.js";
 import { icon } from "./icons.js";
+import { aiOn } from "./me.js";
 
 let ctx, mode = "foot", wps, gpx = null, gpxName = "", depart, ia = false, picking = -1, result = null, recents = LS.get("mg-routes", []), hoverM = null, busy = false;
 const blank = () => [{ label: "", lat: null, lon: null }, { label: "", lat: null, lon: null }];
@@ -12,7 +13,7 @@ const LV = ["Favorable", "Precaución", "Desaconsejable"];
 
 export function mount(c) {
   ctx = c; wps = wps || blank(); depart = depart || nextHalf();
-  ctx.cola.innerHTML = `${ctx.brand("routes", "Planificador de rutas")}<div class="form" id="form"></div>
+  ctx.cola.innerHTML = `${ctx.brand("routes", "Planificador de rutas")}${aiOn() ? `<form class="route-ai" id="route-ai"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Cuéntaselo a Guilda</span><div class="route-ai-in"><input id="route-q" type="text" maxlength="400" placeholder="«Espot al refugi, mañana a las 8»" aria-label="Describe tu ruta"><button class="go" type="submit" aria-label="Enviar">${icon("up", 16)}</button></div><small>Te lo explica con el tiempo real; los puntos los fijas abajo o en el mapa.</small></form>` : ""}<div class="form" id="form"></div>
     <div id="recents"></div><p class="cola-note">Rutas a pie y en coche con Valhalla/OpenStreetMap. Tiempos a pie con la regla de Naismith. Importa un GPX para usar tu propio track.</p>`;
   ctx.colb.innerHTML = `<div class="article"><h1>Planifica la salida con el tiempo a favor</h1><p class="lead">Marca un origen y un destino (o importa un GPX), elige cuándo sales y Meteo Guilda calcula la previsión en cada punto <em>a la hora en que llegarás</em>, el riesgo por tramo y la mejor ventana para salir.</p>
     <div class="callout">Consejo: pulsa «Mapa» junto a un punto y toca el mapa para fijarlo.</div></div>`;
@@ -24,6 +25,7 @@ export function mount(c) {
   ctx.mapCtl('<span class="chip chip-ghost">Toca el mapa para fijar el siguiente punto</span>');
   ctx.stations(false);
   paintForm(); paintRecents(); drawWps();
+  $("#route-ai")?.addEventListener("submit", (e) => { e.preventDefault(); const v = $("#route-q").value.trim(); if (v) { $("#route-q").value = ""; ctx.ask?.(`Quiero planificar una ruta: ${v}`); } });
   if (result) { paintResult(); drawRoute(); }
 }
 export function unmount() { picking = -1; ctx.map?.getCanvas && (ctx.map.getCanvas().style.cursor = ""); clearRoute(); }

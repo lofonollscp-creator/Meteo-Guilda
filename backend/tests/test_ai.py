@@ -114,3 +114,14 @@ async def test_los_modelos_caidos_se_saltan_y_se_explica_por_que(monkeypatch):
         ai._health.clear(); monkeypatch.setenv("MG_MODELS", "sat:free")
         assert await ai.generate(ctx, c, api_key="k") is None
         assert "saturados" in ai.generate.last_why
+
+
+def test_estado_de_los_modelos_gratuitos():
+    ai._health.clear()
+    ai.note("a/modelo:free", None)
+    ai.note("b/modelo:free", "429")
+    e = {x["modelo"]: x for x in ai.estado_modelos()}
+    assert e["a/modelo:free"]["estado"] == "disponible" and e["a/modelo:free"]["segundos"] == 0
+    assert e["b/modelo:free"]["estado"] == "pausado" and e["b/modelo:free"]["segundos"] > 0 and e["b/modelo:free"]["motivo"] == "429"
+    assert ai.estado_modelos()[0]["modelo"] == "a/modelo:free"       # los disponibles van primero
+    ai._health.clear()

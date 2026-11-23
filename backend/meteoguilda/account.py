@@ -165,6 +165,13 @@ async def models(request: Request, provider: str):
     return {"provider": provider, "models": await ai.list_models(request.app.state.http, ai.AIConfig(provider, "", key))}
 
 
+@router.get("/api/me/ai-status")
+def ai_status(request: Request):
+    """Estado de los modelos gratuitos del servidor (cuál responde, cuál está en pausa por límite de uso y cuánto falta)."""
+    current(request)
+    return {"modelos": ai.estado_modelos()[:8], "nota": "Si un modelo responde 429 o vacío, se pausa unos minutos y se prueba el siguiente."}
+
+
 @router.post("/api/me/test")
 async def test(request: Request):
     """Prueba la configuración de IA actual con una petición mínima."""
