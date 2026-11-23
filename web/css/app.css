@@ -567,3 +567,10 @@ html,body{overscroll-behavior:none}
 
 .tablewrap td.best{color:var(--ok);font-weight:700}
 ul.plain{margin:6px 0 0;padding-left:18px}ul.plain li{margin:4px 0}
+.favtools{display:inline-flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0}
+.favtools select{font-size:12px;padding:3px 6px;border:1px solid var(--line-2);border-radius:6px;background:var(--surface);color:var(--ink-2)}
+.favtools .chip{font-size:12px;padding:3px 10px}
+.places li{position:relative}
+.reord{position:absolute;right:8px;bottom:8px;display:flex;gap:4px;z-index:2}
+.reord button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font-size:15px;line-height:1}
+.reord button:disabled{opacity:.3}

@@ -28,8 +28,13 @@ async def fetch(http: httpx.AsyncClient, lat: float, lon: float) -> dict:
     hit = _cache.get(k)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
-    r = await http.get(URL, params={"latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "hourly": ",".join(VARS), "forecast_days": 2, "timezone": "auto"})
-    r.raise_for_status()
+    try:
+        r = await http.get(URL, params={"latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}", "hourly": ",".join(VARS), "forecast_days": 2, "timezone": "auto"})
+        r.raise_for_status()
+    except httpx.HTTPError:
+        if hit and time.time() - hit[0] < 6 * 3600:      # la fuente limita o falla: mejor datos de hace unas horas, avisando, que un error
+            return {**hit[1], "desactualizado": True}
+        raise
     out = summarize(r.json(), lat, lon)
     _cache[k] = (time.time(), out)
     if len(_cache) > 300:

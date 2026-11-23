@@ -23,6 +23,7 @@ from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import mar as mar_mod
 from . import comparar as comparar_mod
+from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
 from . import account, activities, airq, auth, oauth, sources, ai, astro, db, geocode, logbook, openmeteo, portable, qc, radio, repeater_sources, routing, satellites, store
 from .places import BY_SLUG, PLACES, Place
 
@@ -170,7 +171,8 @@ async def repeaters_loop(http: httpx.AsyncClient):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.http = httpx.AsyncClient(timeout=30, headers={"User-Agent": "MeteoGuilda/0.2"})
+    app.state.http = httpx.AsyncClient(timeout=30, headers={"User-Agent": "MeteoGuilda/0.2"},
+                                       event_hooks={"request": [_cuota_antes], "response": [_cuota_despues]})
     try:
         await asyncio.to_thread(db.init_schema)
     except Exception as e:  # noqa: BLE001
@@ -193,6 +195,12 @@ H = lambda r: r.app.state.http  # noqa: E731
 app.include_router(oauth.router)
 app.include_router(auth.router)
 app.include_router(account.router)
+
+
+@app.get("/api/cuota")
+def cuota_estado():
+    """Uso de Open-Meteo (peticiones del último minuto, hora y día frente a su límite gratuito) y si hay un freno por 429."""
+    return cuota_om.estado()
 
 
 @app.get("/api/health")

@@ -1,4 +1,4 @@
-import { $, $$, api, esc, nf, nf1, t0, LS, debounce, compass, wd, hh, slug } from "./util.js";
+import { $, $$, api, esc, nf, nf1, t0, LS, debounce, compass, wd, hh, slug, distKm } from "./util.js";
 import { renderCharts, renderStrip, renderModels, MODEL_COLORS, sparkline, ramp, SCALES, renderRose, moonSvg, sunArc } from "./charts.js";
 import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
@@ -12,7 +12,23 @@ const favKey = (lat, lon) => slug(lat, lon);
 const findFav = (lat, lon) => favs.find((f) => f.key === favKey(lat, lon));
 const MODEL_NAMES = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS (IA)", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France",
   gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI" };
-const sortedFavs = () => [...favs].sort((a, b) => (b.pinned | 0) - (a.pinned | 0));
+// Orden de «Mis lugares»: manual (el que dejas con ↑↓), A–Z, más cálido ahora o más cerca de tu QTH. Los fijados van siempre arriba.
+const SORTS = [["manual", "Mi orden"], ["az", "A–Z"], ["temp", "Más cálido"], ["cerca", "Más cerca"]];
+let favSort = LS.get("mg-favsort", "manual"), favEdit = false;
+const favRank = (a, b) => {
+  if (favSort === "az") return a.name.localeCompare(b.name, "es");
+  if (favSort === "temp") return (snaps[b.key]?.temp_c ?? -999) - (snaps[a.key]?.temp_c ?? -999);
+  const q = getQth();
+  if (favSort === "cerca" && q?.lat != null) return distKm(q, a) - distKm(q, b);
+  return 0;                                                        // manual: se respeta el orden del array (sort estable)
+};
+const sortedFavs = () => [...favs].sort((a, b) => (b.pinned | 0) - (a.pinned | 0) || favRank(a, b));
+function moveFav(key, dir) {
+  const list = sortedFavs(), i = list.findIndex((f) => f.key === key), j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length || !!list[i].pinned !== !!list[j].pinned) return;   // no cruza la frontera de los fijados
+  [list[i], list[j]] = [list[j], list[i]];
+  favs = list; saveFavs(); renderFavs();
+}
 
 export function mount(c) {
   ctx = c;
@@ -36,7 +52,12 @@ export function mount(c) {
   ctx.mapCtl('<button class="chip" id="fit" type="button">Ver los 6 lugares</button><span class="chip chip-ghost">Toca el mapa para consultar un punto</span>');
   $("#fit").addEventListener("click", () => ctx.fit(places.map((p) => [p.lon, p.lat])));
   $("#places").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
-  $("#favs").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
+  $("#favs").addEventListener("click", (e) => {
+    const m = e.target.closest("[data-mv]"); if (m) return moveFav(m.dataset.mv, +m.dataset.d);
+    if (e.target.closest("#favedit")) { favEdit = !favEdit; return renderFavs(); }
+    const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go;
+  });
+  $("#favs").addEventListener("change", (e) => { if (e.target.id === "favsort") { favSort = e.target.value; LS.set("mg-favsort", favSort); if (favSort !== "manual") favEdit = false; renderFavs(); } });
   setupSearch();
   $(".home-link").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", "#/forecast"); home(); });
   renderPlaces(); renderFavs(); renderMyLoc(); loadHomeSnap(); ensureName();
@@ -98,8 +119,10 @@ async function loadHomeSnap() {
 
 function renderFavs() {
   const f = sortedFavs();
-  $("#favs").innerHTML = f.length ? `<div class="group-label">Mis lugares</div><ul class="places">${f.map((x) =>
-    placeRow(favHash(x), x.name, x.sub || "", snaps[x.key], { current: sel?.key === x.key, pinned: x.pinned })).join("")}</ul>` : "";
+  const manual = favSort === "manual", move = (x, i) => (favEdit && manual ? `<span class="reord"><button type="button" data-mv="${esc(x.key)}" data-d="-1" aria-label="Subir ${esc(x.name)}"${i === 0 || !!f[i - 1].pinned !== !!x.pinned ? " disabled" : ""}>↑</button><button type="button" data-mv="${esc(x.key)}" data-d="1" aria-label="Bajar ${esc(x.name)}"${i === f.length - 1 || !!f[i + 1].pinned !== !!x.pinned ? " disabled" : ""}>↓</button></span>` : "");
+  $("#favs").innerHTML = f.length ? `<div class="group-label">Mis lugares${f.length > 1 ? `<span class="favtools"><select id="favsort" aria-label="Ordenar mis lugares">${SORTS.map(([v, t]) => `<option value="${v}"${v === favSort ? " selected" : ""}>${t}</option>`).join("")}</select>${manual ? `<button type="button" class="chip" id="favedit" aria-pressed="${favEdit}">${favEdit ? "Listo" : "Mover"}</button>` : ""}</span>` : ""}</div>
+    ${favSort === "cerca" && getQth()?.lat == null ? '<p class="empty" style="padding:0 18px">Define tu QTH para ordenar por cercanía.</p>' : ""}<ul class="places">${f.map((x, i) =>
+    placeRow(favHash(x), x.name, x.sub || "", snaps[x.key], { current: sel?.key === x.key, pinned: x.pinned }).replace(/<\/li>$/, `${move(x, i)}</li>`)).join("")}</ul>` : "";
 }
 const favHash = (x) => `#/forecast/p/${x.lat.toFixed(4)},${x.lon.toFixed(4)},${encodeURIComponent(x.name)}`;
 async function loadFavSnaps() {
