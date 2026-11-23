@@ -5,7 +5,7 @@ import * as me from "./me.js";
 import * as account from "./account.js";
 import * as assistant from "./assistant.js";
 import { initPantalla } from "./pantalla.js";
-import { getQth, hasQth, label as qthLabel } from "./qth.js";
+import { getQth, hasQth } from "./qth.js";
 
 const BRAND = { forecast: ["Meteo Guilda", "Datos abiertos y balizas reales"], routes: ["Meteo Guilda", "Rutas con el tiempo a la hora de paso"],
   radio: ["Radio Guilda", "Repetidores, propagación y satélites"], learn: ["Guilda", "Meteo y radio, explicadas"] };
@@ -40,7 +40,7 @@ const ctx = {
   },
   hash(path, replace = true) { const h = "#/" + path; if (location.hash !== h) { replace ? history.replaceState(null, "", h) : (location.hash = h); } },
   toast(msg) { const t = Object.assign(document.createElement("div"), { className: "toast", textContent: msg }); document.body.appendChild(t); setTimeout(() => t.remove(), 2200); },
-  home: () => (hasQth() ? { lat: getQth().lat, lon: getQth().lon, name: qthLabel() } : null),   // «Mi ubicación»
+  home: () => (hasQth() ? { lat: getQth().lat, lon: getQth().lon, name: getQth().name || (getQth().locator ? `QTH ${getQth().locator}` : "Mi ubicación") } : null),   // «Mi ubicación»
   place: () => null,                  // la sección de Previsión lo sustituye por el lugar que se está viendo
   section: () => current,
   // Los marcadores y encuadres se piden antes de que MapLibre esté cargado (se descarga aparte): se guardan y se colocan al crearse el mapa.
@@ -228,4 +228,4 @@ $("#chatbtn").addEventListener("click", () => assistant.toggle());
 me.load();
 pullSettings().finally(route);
 (window.requestIdleCallback || ((f) => setTimeout(f, 800)))(() => { if (!phone()) ensureMap(); else setTimeout(ensureMap, 6000); }, { timeout: 2500 });
-addEventListener("keydown", (e) => { if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const s = $("#q"); if (s) { e.preventDefault(); s.focus(); } } });
+addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { const s = $("#q"); if (s) { e.preventDefault(); s.focus(); s.select(); } return; } if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { const s = $("#q"); if (s) { e.preventDefault(); s.focus(); } } });

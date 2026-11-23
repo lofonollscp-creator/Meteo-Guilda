@@ -14,11 +14,11 @@ const MENU = [
   ["qsl", "Cuaderno QSL", "Contactos, confirmaciones y tarjetas", "log"],
   ["herramientas", "Herramientas", "Locator, antenas, Morse, código Q…", "tools"],
 ];
-import { getQth, setQth } from "./qth.js";   // el QTH es el mismo que «Mi ubicación» de Previsión (y llega al asistente y al MCP)
+import { getQth, setQth, qthName } from "./qth.js";   // el QTH es el mismo que «Mi ubicación» de Previsión (y llega al asistente y al MCP)
 export { getQth };
 const MODE_COL = { FM: "#3a7bd5", DMR: "#c4501b", "D-STAR": "#7a5bd6", C4FM: "#2c8a5a" };
 const fmtF = (f) => f.toFixed(4).replace(".", ",");
-const here = () => loc || (getQth() ? { ...getQth(), name: "Mi QTH" } : { lat: 42.7, lon: 0.847, name: "Garòs" });
+const here = () => loc || (getQth() ? { ...getQth(), name: qthName() } : { lat: 42.7, lon: 0.847, name: "Garòs" });
 const bmLink = (r) => (r.dmr_id ? `https://brandmeister.network/?page=repeater&id=${r.dmr_id}` : null);
 
 export function mount(c) {
@@ -66,7 +66,7 @@ const head = (t, p, extra = "") => `<div class="d-head"><div><h1>${t}</h1><p>${p
 const where = () => `<div class="row" style="margin:16px 0"><select id="where" style="width:auto;max-width:100%"></select><span class="chip chip-ghost">o toca el mapa</span></div>`;
 async function fillWhere(onChange) {
   await placesP;
-  const q = getQth(), opts = [...(q?.lat != null ? [{ name: "Mi QTH", lat: q.lat, lon: q.lon }] : []), ...places.map((p) => ({ name: p.name, lat: p.lat, lon: p.lon }))];
+  const q = getQth(), opts = [...(q?.lat != null ? [{ name: qthName(q), lat: q.lat, lon: q.lon }] : []), ...places.map((p) => ({ name: p.name, lat: p.lat, lon: p.lon }))];
   if (loc?.name === "Punto del mapa") opts.push(loc);
   const sel = $("#where"); if (!sel) return;
   sel.innerHTML = opts.map((o, i) => `<option value="${i}">${esc(o.name)}</option>`).join("");
@@ -363,5 +363,5 @@ function herramientas() {
   const qq = () => { const t = $("#q-in").value.toLowerCase(); $("#q-out").innerHTML = Q.filter(([c, d]) => !t || c.toLowerCase().includes(t) || d.toLowerCase().includes(t)).map(([c, d]) => `<div><b>${c}</b><br>${esc(d)}</div>`).join(""); };
   $("#q-in").addEventListener("input", qq); qq();
   $("#w-in").addEventListener("input", (e) => { const w = +e.target.value; $("#w-out").innerHTML = w > 0 ? `<b class="num">${(10 * Math.log10(w * 1000)).toFixed(1)} dBm</b> · ${(w * 1000).toLocaleString("es")} mW` : ""; });
-  if (q?.lat != null) ctx.marker(q.lon, q.lat, { label: "Mi QTH", cls: "fav" });
+  if (q?.lat != null) ctx.marker(q.lon, q.lat, { label: qthName(q), cls: "fav" });
 }

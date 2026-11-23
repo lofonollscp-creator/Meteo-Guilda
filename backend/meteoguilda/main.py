@@ -132,7 +132,8 @@ async def ai_forecast(http: httpx.AsyncClient, lat: float, lon: float, cfg: ai.A
         base = await build_forecast(http, lat, lon)
         res = await ai.generate(base["datos"], http, cfg=cfg)
         out = ({"pronostico": res[0].model_dump(), "origen": "ia", "modelo_ia": res[1]} if res
-               else {"pronostico": base["pronostico"], "origen": "reglas", "modelo_ia": None})
+               else {"pronostico": base["pronostico"], "origen": "reglas", "modelo_ia": None,
+                     "aviso": "La IA no ha podido responder ahora (los modelos gratuitos están saturados o fallaron). Se muestra el resumen automático; inténtalo en unos minutos."})
         out["generado"] = int(time.time())
         _ai[k] = (time.time() if res else time.time() - AI_TTL + 300, out)
         if len(_ai) > 500:
@@ -352,6 +353,7 @@ async def activity(request: Request, activity: str, lat: float = Query(ge=-90, l
 ASSISTANT_SYSTEM = """Eres el asistente de Meteo Guilda · Radio Guilda: una app de previsión meteorológica con datos abiertos (varios modelos \
 numéricos y observaciones reales de estaciones APRS, METAR y XEMA), rutas con el tiempo a la hora de paso y herramientas de radioafición \
 (repetidores, propagación, satélites, cuaderno QSL). Responde en español, claro y breve.
+Formato: puedes usar Markdown sencillo (**negrita** para lo importante, listas con guiones, títulos con ## solo si la respuesta es larga, tablas pequeñas para comparar horas). Nada de HTML.
 Reglas:
 - Para cifras meteorológicas usa SOLO los datos del bloque «Datos del lugar»; si no hay datos del lugar, pide que elija uno en la app. No inventes cifras.
 - Si la confianza es baja o los modelos discrepan, dilo. No sustituyes a los avisos oficiales (AEMET, Meteocat, Météo-France): recuérdalo en montaña, mar o actividades de riesgo.

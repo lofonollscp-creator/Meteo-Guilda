@@ -3,7 +3,7 @@ import { renderCharts, renderStrip, renderModels, MODEL_COLORS, sparkline, ramp,
 import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
 import { aiOn, onChange as onMe, me } from "./me.js";
-import { getQth, hasQth, label as qthLabel, hashOf as qthHash, locate, clearQth, onQth } from "./qth.js";
+import { getQth, hasQth, label as qthLabel, hashOf as qthHash, locate, clearQth, onQth, ensureName } from "./qth.js";
 
 let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null, offQth = null, locating = false;
 const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
@@ -38,7 +38,7 @@ export function mount(c) {
   $("#favs").addEventListener("click", (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; });
   setupSearch();
   $(".home-link").addEventListener("click", (e) => { e.preventDefault(); history.replaceState(null, "", "#/forecast"); home(); });
-  renderPlaces(); renderFavs(); renderMyLoc(); loadHomeSnap();
+  renderPlaces(); renderFavs(); renderMyLoc(); loadHomeSnap(); ensureName();
   offQth = onQth(() => { renderMyLoc(); loadHomeSnap(); drawPins(); });
   $("#myloc").addEventListener("click", myLocClick);
   api("/api/places").then((p) => { places = p; renderPlaces(); drawPins(); if (!sel) ctx.fit(places.map((x) => [x.lon, x.lat])); }).catch(() => {});
@@ -136,7 +136,7 @@ function setupSearch() {
   async function run() {
     const t = q.value.trim(); items = [];
     let html = "";
-    const here = hasQth() ? [{ name: "Mi ubicación", sub: qthLabel(), lat: getQth().lat, lon: getQth().lon, mine: true }] : [];
+    const here = hasQth() ? [{ name: qthLabel(), sub: "Mi ubicación" + (getQth().locator ? ` · ${getQth().locator}` : ""), lat: getQth().lat, lon: getQth().lon, mine: true }] : [];
     const mine = [...(t && !"mi ubicación".includes(t.toLowerCase()) ? [] : here), ...sortedFavs().filter((f) => !t || f.name.toLowerCase().includes(t.toLowerCase())).map((f) => ({ ...f, sub: (f.pinned ? "Anclado · " : "Favorito · ") + (f.sub || "") }))];
     if (!t) {
       html += paint("Mis lugares", mine);
@@ -251,7 +251,8 @@ function render(d) {
   const near = c.estaciones_cercanas?.find((s) => s.dist_km <= 15 && s.temp_c != null);
   const mountain = lug.kind === "montaña" || (c.ubicacion.altitud_m ?? 0) > 900;
   const alt = c.ubicacion.altitud_m != null ? ` · ${nf.format(c.ubicacion.altitud_m)} m` : "";
-  const area = lug.area ? `${esc(lug.area)} · ${esc(lug.region)}${alt}` : `${la.toFixed(3)}°, ${lo.toFixed(3)}°${alt}`;
+  const q0m = getQth(), isMine = q0m?.lat != null && Math.abs(q0m.lat - la) < 0.002 && Math.abs(q0m.lon - lo) < 0.002;
+  const area = isMine ? `Mi ubicación${q0m.locator ? ` · ${esc(q0m.locator)}` : ""}${alt}` : lug.area ? `${esc(lug.area)} · ${esc(lug.region)}${alt}` : `${la.toFixed(3)}°, ${lo.toFixed(3)}°${alt}`;
   lastData = d;
   const nm = c.modelos.length, srcs = [...new Set((c.estaciones_cercanas || []).map((s) => s.fuente || "APRS"))];
   const tint = ramp(SCALES.temp, now.temp_c.mean).replace("rgb(", "rgba(").replace(")", ",.16)");
@@ -382,7 +383,7 @@ async function paintReading(d) {
       if (my2 !== aiSeq || !$("#reading")) return;
       if (r.origen === "ia") setReading(r.pronostico, `Lectura de IA · ${(r.modelo_ia || "").split("/").pop().replace(":free", "")}`);
       else if (r.origen === "sin_ia") { setReading(rules, "Resumen automático (sin IA)", '<p class="ai-note">El servidor no tiene IA configurada. Puedes usar tu propia clave en <button class="btn ghost sm" type="button" id="ai-enable">Ajustes</button>.</p>'); $("#ai-enable")?.addEventListener("click", openSet); }
-      else offer("La IA no ha respondido ahora. ");
+      else offer(`${esc(r.aviso || "La IA no ha respondido ahora.")} `);
     } catch (e) { if (my2 === aiSeq && $("#reading")) offer(`No se pudo obtener la lectura (${esc(e.message)}). `); }
   }
   offer();                                                           // por defecto: resumen por reglas + botón
@@ -482,7 +483,7 @@ function drawCharts(all, mountain) {
     { label: "Nubes %", val: (i) => T[i].nubes_pct?.mean, color: (v) => ramp(SCALES.cloud, v), text: (v) => nf.format(v) },
   ], axisFor);
   const defs = [
-    { title: "Temperatura", sub: "°C · banda = rango entre modelos", draw: "band", H: 170, range: () => [Math.min(...T.map((x) => x.temp_c.min)), Math.max(...T.map((x) => x.temp_c.max))],
+    { title: "Temperatura", sub: "°C · banda = rango entre modelos", draw: "band", unit: "°", H: 170, range: () => [Math.min(...T.map((x) => x.temp_c.min)), Math.max(...T.map((x) => x.temp_c.max))],
       mean: g("temp_c"), min: g("temp_c", "min"), max: g("temp_c", "max"), tip: (i) => `${wd(T[i].time)} ${hh(T[i].time)} · <b>${t0(T[i].temp_c.mean)} °C</b> (${t0(T[i].temp_c.min)} a ${t0(T[i].temp_c.max)})` },
     { title: "Precipitación", sub: "mm por tramo de 3 h", draw: "bars", H: 115, ticks: 2, range: () => [0, Math.max(2, ...T.map((x) => x.lluvia_mm?.mean ?? 0))], mean: g("lluvia_mm"), tip: (i) => `${wd(T[i].time)} ${hh(T[i].time)} · <b>${nf1.format(T[i].lluvia_mm?.mean ?? 0)} mm</b>` },
     ...(hasSnow ? [{ title: "Nieve", sub: "cm por tramo de 3 h", draw: "bars", cls: "bar snow", H: 100, ticks: 2, range: () => [0, Math.max(1, ...T.map((x) => x.nieve_cm?.mean ?? 0))], mean: g("nieve_cm"), tip: (i) => `${wd(T[i].time)} ${hh(T[i].time)} · <b>${nf1.format(T[i].nieve_cm?.mean ?? 0)} cm</b>` }] : []),
@@ -516,7 +517,7 @@ async function home(keepPane = false) {
   const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="pcard" data-go="${esc(x.go)}"><span class="pn">${esc(x.name)}</span><span class="pa">${esc(x.area)}</span>
       <span class="pt"><span class="num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</span>
       ${x.snap ? sparkline(x.snap.spark, 180, 34) + `<span class="pm"><span>racha ${x.snap.gust_kmh} km/h</span><span>${nf1.format(x.snap.rain_24h_mm)} mm</span></span>` : ""}</button>`; }).join("");
-  const q0 = getQth(), mineCard = q0?.lat != null ? [{ go: qthHash(q0), name: "Mi ubicación", area: qthLabel(q0), snap: snaps.__home }] : [];
+  const q0 = getQth(), mineCard = q0?.lat != null ? [{ go: qthHash(q0), name: qthLabel(q0), area: q0.detalle || "Mi ubicación", snap: snaps.__home }] : [];
   const all = [...mineCard, ...places.map((p) => ({ go: `#/forecast/${p.slug}`, name: p.name, area: p.area, snap: p.now })), ...sortedFavs().map((f) => ({ go: favHash(f), name: f.name, area: f.sub || "Mi lugar", snap: snaps[f.key] }))];
   const cta = q0?.lat != null ? "" : `<button class="pcard cta" type="button" data-loc="go"><span class="pn">${icon("pin", 18)} Mi ubicación</span><span class="pa">Toca para usar la posición de este dispositivo y ver aquí el tiempo de donde estás.</span></button>`;
   const draw = () => { const g = $("#pg"); if (!g) return; g.innerHTML = cta + pcards(all);

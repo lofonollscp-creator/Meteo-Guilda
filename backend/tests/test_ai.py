@@ -67,3 +67,27 @@ def test_summarize_skips_past_hours():
     # 10:30 UTC = 11:30 local -> primer tramo empieza a las 11:00
     s = openmeteo.summarize(d, now=datetime(2026, 11, 22, 10, 30, tzinfo=timezone.utc))
     assert s["steps"][0]["time"] == "2026-11-22T11:00"
+
+
+def test_los_rangos_y_los_miles_no_cuentan_como_cifras_inventadas():
+    ctx = {"tramos": [{"temp_c": {"mean": 11, "min": 8, "max": 11}, "racha_kmh": {"max": 31}, "isocero_m": {"mean": 2262}}]}
+    assert ai.unsupported_numbers("Entre 8-11 °C, rachas de 31 km/h e isocero a 2.262 m.", ctx) == []     # «8-11» es un rango, no un −11
+    assert ai.unsupported_numbers("Mínima de -11 °C.", ctx) == ["-11 °C"]                                    # un negativo de verdad sí se contrasta
+    assert ai.unsupported_numbers("Isocero a 2.900 m.", ctx) == ["2.900 m"]
+
+
+async def test_una_respuesta_vacia_de_un_modelo_no_rompe_el_pronostico(monkeypatch):
+    ctx = ai.build_context(openmeteo.summarize(fake_openmeteo()), [])
+    monkeypatch.setenv("MG_MODELS", "vacio:free,bueno:free")
+
+    def handler(req: httpx.Request):
+        import json
+        if json.loads(req.content)["model"] == "vacio:free":
+            return httpx.Response(200, json={"choices": [{"message": {"content": None}}]})      # OpenRouter a veces devuelve content null
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"resumen":"Día estable, unos 10 °C.","confianza":"media"}'}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        res = await ai.generate(ctx, c, api_key="k")
+        assert res and res[1] == "bueno:free"
+        monkeypatch.setenv("MG_MODELS", "vacio:free")
+        assert await ai.generate(ctx, c, api_key="k") is None                                    # y si todos fallan: None (la API cae al resumen por reglas), nunca un 500

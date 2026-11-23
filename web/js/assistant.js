@@ -1,6 +1,7 @@
 // Asistente de IA: chat lateral (pantalla completa en móvil) con datos reales del lugar que estás mirando.
 import { $, esc, LS } from "./util.js";
 import { icon } from "./icons.js";
+import { md } from "./md.js";
 import { aiOn, me, onChange } from "./me.js";
 
 const json = { "content-type": "application/json" };
@@ -33,15 +34,15 @@ function paint() {
     return;
   }
   const pl = place(), home = ctx.home?.(), prov = me.data?.provider;
-  el.innerHTML = `<header><h2>Asistente</h2>
+  el.innerHTML = `<header><span class="chat-av" aria-hidden="true">${icon("chat", 18)}</span><div class="chat-t"><h2>Asistente</h2><p>Datos reales de modelos y estaciones</p></div>
       <button class="icon-btn" id="chat-new" type="button" aria-label="Nueva conversación" title="Nueva conversación">${icon("refresh")}</button>
       <button class="icon-btn" id="chat-cfg" type="button" aria-label="Ajustes de IA" title="Ajustes de IA">${icon("gear")}</button>
       <button class="icon-btn" id="chat-x" type="button" aria-label="Cerrar">${icon("x")}</button></header>
-    <div class="ctxline">${pl ? `Viendo <b>${esc(pl.name || "tu lugar")}</b>` : "Ningún lugar abierto."}${home ? ` · 📍 <b>${esc(home.name)}</b> (tu ubicación: «aquí» y «donde estoy» se refieren a ella)` : (pl ? "" : " Abre un lugar o activa «Mi ubicación» en Previsión para que responda con datos reales.")}${prov && prov !== "server" ? ` · ${esc(me.data.model || prov)}` : ""}</div>
+    <div class="ctxline">${pl ? `<span class="chip">${icon("map", 13)} Viendo <b>${esc(pl.name || "tu lugar")}</b></span>` : `<span class="chip dim">Ningún lugar abierto</span>`}${home ? `<span class="chip" title="«aquí» y «donde estoy» se refieren a tu ubicación">${icon("pin", 13)} <b>${esc(home.name)}</b></span>` : ""}${prov && prov !== "server" ? `<span class="chip dim">${esc((me.data.model || prov).split("/").pop())}</span>` : ""}${!pl && !home ? `<span class="ctx-help">Abre un lugar o activa «Mi ubicación» en Previsión para que responda con datos reales.</span>` : ""}</div>
     <div class="msgs" id="chat-msgs" aria-live="polite"></div>
     <div class="hints" id="chat-hints"></div>
-    <form id="chat-form"><textarea id="chat-in" rows="1" maxlength="1500" placeholder="Escribe tu pregunta…" aria-label="Mensaje"></textarea>
-      <button class="btn" type="submit" aria-label="Enviar" id="chat-send">${icon("send", 18)}</button></form>`;
+    <form id="chat-form"><textarea id="chat-in" rows="1" maxlength="1500" placeholder="Pregunta lo que quieras…" aria-label="Mensaje"></textarea>
+      <button class="chat-send" type="submit" aria-label="Enviar" id="chat-send">${icon("send", 18)}</button></form>`;
   $("#chat-x", el).onclick = () => toggle(false);
   $("#chat-cfg", el).onclick = () => { toggle(false); openAccount("ia"); };
   $("#chat-new", el).onclick = () => { msgs = []; LS.set("mg-chat", msgs); paint(); };
@@ -51,12 +52,20 @@ function paint() {
   $("#chat-form", el).addEventListener("submit", (e) => { e.preventDefault(); const v = ta.value.trim(); if (v && !busy) { ta.value = ""; ta.style.height = "auto"; ask(v); } });
   drawMsgs();
 }
+const shortModel = (m = "") => { const t = m.replace(":free", ""); return t.length > 26 ? t.split("/").pop() : t; };
+const AV = () => `<span class="av" aria-hidden="true">${icon("chat", 15)}</span>`;
+function bubble(m, i) {
+  if (m.role === "user") return `<div class="m u">${esc(m.content)}</div>`;
+  const foot = !m.err && m.model !== undefined ? `<div class="mf"><small>${esc(shortModel(m.model))}</small><button type="button" class="copy" data-copy="${i}" aria-label="Copiar respuesta" title="Copiar">${icon("link", 13)} Copiar</button></div>` : "";
+  return `<div class="m a${m.err ? " err" : ""}">${AV()}<div class="mb">${m.err ? `<p>${esc(m.content)}</p>` : md(m.content)}${foot}</div></div>`;
+}
 function drawMsgs() {
   const box = $("#chat-msgs", el); if (!box) return;
-  box.innerHTML = msgs.length ? msgs.map((m) => `<div class="m ${m.role === "user" ? "u" : "a"}${m.err ? " err" : ""}">${esc(m.content)}${m.model ? `<small>${esc(m.model.split("/").pop().replace(":free", ""))}</small>` : ""}</div>`).join("")
-    : '<div class="m a">Hola, soy el asistente de Guilda. Puedo explicarte la previsión del lugar que estás mirando, ayudarte a decidir cuándo salir o resolver dudas de radio.</div>';
+  box.innerHTML = msgs.length ? msgs.map(bubble).join("")
+    : `<div class="m a">${AV()}<div class="mb"><p>Hola, soy el asistente de Guilda. Puedo:</p><ul><li>explicarte la <strong>previsión</strong> del lugar que miras,</li><li>decirte <strong>cuándo salir</strong> o qué riesgos hay,</li><li>resolver dudas de <strong>radio</strong> y propagación.</li></ul></div></div>`;
   $("#chat-hints", el).innerHTML = msgs.length ? "" : (ctx.home?.() ? HINTS_HOME : HINTS).map((h) => `<button type="button">${esc(h)}</button>`).join("");
   $$h(el);
+  box.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(msgs[+b.dataset.copy].content); b.textContent = "Copiado"; setTimeout(() => (b.innerHTML = `${icon("link", 13)} Copiar`), 1500); } catch {} }));
   box.scrollTop = box.scrollHeight;
 }
 const $$h = (root) => root.querySelectorAll("#chat-hints button").forEach((b) => (b.onclick = () => ask(b.textContent)));
@@ -64,7 +73,7 @@ async function ask(text) {
   busy = true; $("#chat-send", el)?.setAttribute("disabled", "");
   msgs.push({ role: "user", content: text }); drawMsgs();
   const box = $("#chat-msgs", el), wait = document.createElement("div");
-  wait.className = "m a"; wait.innerHTML = '<span class="ai-wait"><i></i>Pensando…</span>'; box.appendChild(wait); box.scrollTop = box.scrollHeight;
+  wait.className = "m a"; wait.innerHTML = `${AV()}<div class="mb"><span class="typing" aria-label="Pensando"><i></i><i></i><i></i></span></div>`; box.appendChild(wait); box.scrollTop = box.scrollHeight;
   const pl = place();
   try {
     const r = await fetch("/api/assistant", { method: "POST", headers: json, body: JSON.stringify({

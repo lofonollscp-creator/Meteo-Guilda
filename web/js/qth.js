@@ -7,8 +7,21 @@ const KEY = "mg-qth", subs = new Set(), json = { "content-type": "application/js
 export const getQth = () => LS.get(KEY, null);
 export const hasQth = () => getQth()?.lat != null;
 export const onQth = (f) => { subs.add(f); return () => subs.delete(f); };
-/** Nombre para mostrar: el del sitio, o el locator, o «Mi ubicación». */
-export const label = (q = getQth()) => q?.name || (q?.locator ? `Mi QTH ${q.locator}` : "Mi ubicación");
+/** Previsión: el nombre del SITIO (Viella, Garòs…); mientras no se conozca, «Mi ubicación». El locator no se mezcla con el nombre. */
+export const label = (q = getQth()) => q?.name || "Mi ubicación";
+/** Radio: el QTH es el locator («Mi QTH JN02kq»). */
+export const qthName = (q = getQth()) => (q?.locator ? `Mi QTH ${q.locator}` : "Mi QTH");
+/** Si la ubicación llegó solo con locator (Radio) o sin nombre, busca el nombre del sitio sin tocar el locator. */
+export async function ensureName() {
+  const q = getQth();
+  if (q?.lat == null || q.name) return q;
+  try {
+    const r = await api(`/api/reverse?lat=${q.lat.toFixed(4)}&lon=${q.lon.toFixed(4)}`);
+    const now = getQth();
+    if (r.name && now?.lat === q.lat && !now.name) { const n = { ...now, name: r.name, detalle: r.detalle }; LS.set(KEY, n); pushSettings(); subs.forEach((f) => f(n)); }
+  } catch {}
+  return getQth();
+}
 export const hashOf = (q = getQth()) => `#/forecast/p/${q.lat.toFixed(4)},${q.lon.toFixed(4)},${encodeURIComponent(label(q))}`;
 
 let timer;

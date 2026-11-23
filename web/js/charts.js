@@ -17,6 +17,25 @@ function niceTicks(lo, hi, n = 4) {
   return t;
 }
 
+/** Curva suave (spline monótona: no se pasa de los puntos ni inventa picos) que pasa por todos los puntos [x,y]. */
+function smooth(pts) {
+  const n = pts.length; if (n < 3) return pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join("");
+  const dx = [], m = [], t = [];
+  for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / (dx[i] || 1); }
+  t[0] = m[0]; t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+  for (let i = 0; i < n - 1; i++) { if (m[i] === 0) { t[i] = t[i + 1] = 0; continue; } const a = t[i] / m[i], b = t[i + 1] / m[i], h = Math.hypot(a, b); if (h > 3) { t[i] = (3 * a / h) * m[i]; t[i + 1] = (3 * b / h) * m[i]; } }
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) { const h = dx[i] / 3; d += `C${(pts[i][0] + h).toFixed(1)},${(pts[i][1] + t[i] * h).toFixed(1)} ${(pts[i + 1][0] - h).toFixed(1)},${(pts[i + 1][1] - t[i + 1] * h).toFixed(1)} ${pts[i + 1][0].toFixed(1)},${pts[i + 1][1].toFixed(1)}`; }
+  return d;
+}
+let gid = 0;
+function gradient(defs, cls) {
+  const id = `cg${++gid}`, g = el("linearGradient", { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  el("stop", { offset: "0%", class: `gs ${cls} a` }, g); el("stop", { offset: "100%", class: `gs ${cls} b` }, g);
+  return `url(#${id})`;
+}
+
 /* ---------- Burbuja de lectura: flota SOBRE el gráfico (nunca bajo el dedo) y, en pantallas táctiles, se queda al levantar el dedo ---------- */
 function makeBubble(cw) { const b = document.createElement("div"); b.className = "cbubble"; b.setAttribute("aria-hidden", "true"); cw.appendChild(b); return b; }
 function showBubble(b, cw, svg, W, xSvg, html) {
@@ -69,6 +88,11 @@ export function renderCharts(host, items, defs, axis, onCursor) {
       const [lo, hi] = d.range(items);
       const ticks = niceTicks(lo, hi, d.ticks || 4), y0 = ticks[0], y1 = ticks[ticks.length - 1];
       const y = (v) => M.t + lane + ih - ((v - y0) / (y1 - y0 || 1)) * ih;
+      const defsEl = el("defs", {}, svg);
+      if (typeof items[0]?.time === "string" && n > 2) {          // la noche (21–6 h) se ve más oscura: se entiende de un vistazo qué es de día
+        const half = iw / Math.max(n - 1, 1) / 2;
+        items.forEach((it, i) => { const h = +it.time.slice(11, 13); if (h >= 21 || h < 6) el("rect", { class: "night", x: Math.max(M.l, x(i) - half), width: Math.min(W - M.r, x(i) + half) - Math.max(M.l, x(i) - half), y: M.t + lane, height: ih }, svg); });
+      }
       ticks.forEach((t) => {
         el("line", { class: "gl", x1: M.l, x2: W - M.r, y1: y(t), y2: y(t) }, svg);
         el("text", { x: M.l - 6, y: y(t) + 3.5, "text-anchor": "end" }, svg).textContent = f0(t);
@@ -81,25 +105,41 @@ export function renderCharts(host, items, defs, axis, onCursor) {
         if (a.major) el("line", { class: "dl", x1: x(a.i), x2: x(a.i), y1: M.t, y2: H - M.b + 4 }, svg);
         el("text", { x: a.major ? x(a.i) + 4 : x(a.i), y: a.major ? H - 4 : H - 18, "text-anchor": a.major ? "start" : "middle" }, svg).textContent = a.label;
       }
-      const pts = (fn) => items.map((_, i) => `${x(i)},${y(fn(i))}`).join(" ");
+      const P = (fn) => items.map((_, i) => [x(i), y(fn(i))]);
+      const pts = (fn) => P(fn).map((p) => p.join(",")).join(" ");
+      const peaks = (fn) => {                                      // máximo y mínimo señalados con su valor
+        if (n < 8) return;
+        const v = items.map((_, i) => fn(i)); let a = 0, b = 0; v.forEach((q, i) => { if (q > v[a]) a = i; if (q < v[b]) b = i; });
+        if (v[a] - v[b] < (y1 - y0) * 0.12) return;
+        [[a, -9], [b, 15]].forEach(([i, dy]) => {
+          el("circle", { class: "pk", cx: x(i), cy: y(v[i]), r: 3 }, svg);
+          const tx = Math.min(W - M.r - 12, Math.max(M.l + 12, x(i)));
+          el("text", { class: "pkt", x: tx, y: y(v[i]) + dy, "text-anchor": "middle" }, svg).textContent = f0(v[i]) + (d.unit || "");
+        });
+      };
       if (d.draw === "band") {
-        const up = items.map((_, i) => `${x(i)},${y(d.max(i))}`), dn = items.map((_, i) => `${x(i)},${y(d.min(i))}`).reverse();
-        el("polygon", { class: "band", points: [...up, ...dn].join(" ") }, svg);
-        el("polyline", { class: "ln", points: pts(d.mean) }, svg);
+        const up = P(d.max), dn = P(d.min).reverse();
+        el("path", { class: "band", d: `${smooth(up)}L${dn[0][0]},${dn[0][1]}${smooth(dn).slice(1).replace(/^[^C]*/, "")}Z`, style: `fill:${gradient(defsEl, "acc")}` }, svg);
+        el("path", { class: "ln", d: smooth(P(d.mean)) }, svg);
+        peaks(d.mean);
       } else if (d.draw === "bars") {
         const bw = Math.max(3, (iw / n) * 0.64);
         items.forEach((_, i) => {
           const v = d.mean(i); if (v <= 0) return;
-          el("rect", { class: d.cls || "bar", x: x(i) - bw / 2, width: bw, y: y(v), height: Math.max(1.5, y(0) - y(v)), rx: 1.5 }, svg);
+          el("rect", { class: d.cls || "bar", x: x(i) - bw / 2, width: bw, y: y(v), height: Math.max(2, y(0) - y(v)), rx: Math.min(3, bw / 2) }, svg);
         });
       } else if (d.draw === "area") {
-        el("polygon", { class: "area", points: `${x(0)},${y(y0)} ${pts(d.mean)} ${x(n - 1)},${y(y0)}` }, svg);
-        el("polyline", { class: "ln2", points: pts(d.mean) }, svg);
+        const c = P(d.mean);
+        el("path", { class: "area", d: `${smooth(c)}L${x(n - 1)},${y(y0)}L${x(0)},${y(y0)}Z`, style: `fill:${gradient(defsEl, "ink")}` }, svg);
+        el("path", { class: "ln2", d: smooth(c) }, svg);
       } else if (d.draw === "line") {
-        el("polyline", { class: "ln", points: pts(d.mean) }, svg);
+        el("path", { class: "ln", d: smooth(P(d.mean)) }, svg);
+        peaks(d.mean);
       } else if (d.draw === "wind") {
-        el("polyline", { class: "gl2", points: pts(d.gust) }, svg);
-        el("polyline", { class: "wl", points: pts(d.mean) }, svg);
+        const g = P(d.gust), m = P(d.mean);
+        el("path", { class: "wfill", d: `${smooth(g)}L${g[n - 1][0]},${m[n - 1][1]}${smooth(m.slice().reverse()).slice(1).replace(/^[^C]*/, "")}Z`, style: `fill:${gradient(defsEl, "wind")}` }, svg);
+        el("path", { class: "gl2", d: smooth(g) }, svg);
+        el("path", { class: "wl", d: smooth(m) }, svg);
         const every = Math.max(1, Math.round(26 / (iw / n)));
         items.forEach((_, i) => {
           const dir = d.dir?.(i);

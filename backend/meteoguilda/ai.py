@@ -183,7 +183,8 @@ def _collect(obj, key: str = "") -> list[tuple[str, float]]:
 # unidad en el texto -> fragmentos de nombre de campo donde puede aparecer ese valor
 _UNIT_KEYS = {"c": ("temp",), "kmh": ("viento", "racha"), "mm": ("lluvia",),
               "pct": ("nubes", "humedad"), "hpa": ("presion",), "m": ("isocero", "altitud", "ascenso", "descenso", "ele")}
-_UNIT_NUM = re.compile(r"(-?\d+(?:[.,]\d+)?)\s*(°\s*C|ºC|º|km/h|m/s|mm|%|hPa|m)(?![\w/])")
+# El signo solo cuenta si no va pegado a otro número: en «8-11 °C» el guion es un rango, no un -11. Separador de miles: «2.262 m».
+_UNIT_NUM = re.compile(r"(?<![\d.,])(-?)(\d+(?:[.,]\d+)*)\s*(°\s*C|ºC|º|km/h|m/s|mm|%|hPa|m)(?![\w/])")
 _KIND = {"°C": "c", "ºC": "c", "º": "c", "km/h": "kmh", "m/s": "ms", "mm": "mm",
          "%": "pct", "hPa": "hpa", "m": "m"}
 
@@ -193,8 +194,14 @@ def unsupported_numbers(text: str, context: dict) -> list[str]:
     pairs = _collect(context)
     bad = []
     for m in _UNIT_NUM.finditer(text):
-        v = float(m.group(1).replace(",", "."))
-        kind = _KIND[m.group(2).replace(" ", "")]
+        kind = _KIND[m.group(3).replace(" ", "")]
+        num = m.group(2)
+        try:
+            v = float(num.replace(".", "")) if kind == "m" and re.fullmatch(r"[1-9]\d{0,2}(?:\.\d{3})+", num) else float(num.replace(",", "."))
+        except ValueError:
+            continue
+        if m.group(1):
+            v = -v
         if kind == "ms":
             v, kind = v * 3.6, "kmh"
         allowed = [a for k, a in pairs if any(x in k for x in _UNIT_KEYS[kind])]
@@ -236,7 +243,9 @@ async def free_models(client: httpx.AsyncClient) -> list[str]:
     return _models_cache[1] or DEFAULT_MODELS
 
 
-def _extract_json(txt: str) -> dict:
+def _extract_json(txt: str | None) -> dict:
+    if not txt:
+        raise ValueError("Respuesta vacía del modelo")
     m = re.search(r"\{.*\}", txt, re.S)
     return json.loads(m.group(0) if m else txt)
 
@@ -256,7 +265,7 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
                 log.warning("%s: cifras sin respaldo %s; descartado", cfg.model, bad)
                 return None
             return fc, cfg.model
-        except (httpx.HTTPError, KeyError, IndexError, ValueError, ValidationError) as e:
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, AttributeError, ValueError, ValidationError) as e:
             log.warning("%s/%s falló: %s", cfg.provider, cfg.model, e)
             return None
     api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
@@ -272,13 +281,13 @@ async def generate(context: dict, client: httpx.AsyncClient, api_key: str | None
                       "messages": [{"role": "system", "content": system},
                                    {"role": "user", "content": user}]})
             r.raise_for_status()
-            fc = AIForecast(**_extract_json(r.json()["choices"][0]["message"]["content"]))
+            fc = AIForecast(**_extract_json(r.json()["choices"][0]["message"].get("content")))
             bad = check(fc, context)
             if bad:
                 log.warning("%s: cifras sin respaldo %s; descartado", model, bad)
                 continue
             return fc, model
-        except (httpx.HTTPError, KeyError, IndexError, ValueError, ValidationError) as e:
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, AttributeError, ValueError, ValidationError) as e:
             log.warning("%s falló: %s", model, e)
     return None
 
