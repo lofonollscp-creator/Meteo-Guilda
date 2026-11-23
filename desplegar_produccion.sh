@@ -67,7 +67,8 @@ grep -q '^MG_QA=' .env && parar "MG_QA solo es para la pila de pruebas: quítalo
 if [ -z "$(envv MG_SECRET_KEY)" ]; then   # clave de cifrado de las claves de IA que guarda cada persona (ajustes de la cuenta); si se pierde, hay que volver a pedirlas
   python3 -c 'import base64,os;print("\nMG_SECRET_KEY=" + base64.urlsafe_b64encode(os.urandom(32)).decode())' >> .env && aviso "MG_SECRET_KEY generada en .env (cifra las claves de IA de los ajustes; no la cambies ni la pierdas)"
 fi
-[ -n "$(envv OPENROUTER_API_KEY)" ] || aviso "OPENROUTER_API_KEY vacío: se usará el resumen por reglas en lugar de la IA"
+if [ -n "$(envv MISTRAL_API_KEY)" ]; then ok "IA del servidor: Mistral (MISTRAL_API_KEY)"
+else [ -n "$(envv OPENROUTER_API_KEY)" ] || aviso "Ni MISTRAL_API_KEY ni OPENROUTER_API_KEY: se usará el resumen por reglas en lugar de la IA"; fi
 ok "Entorno correcto"
 ANTES="$(git rev-parse --short HEAD)"
 

@@ -76,6 +76,8 @@ def config_for(request: Request) -> tuple[dict, ai.AIConfig]:
     key = decrypt(keys[prov]) if prov != "server" and prov in keys else None
     if prov != "server" and not key:
         prov = "server"          # sin clave propia utilizable: se vuelve al servidor
+    if prov == "server" and (m := ai.server_mistral(s.get("model"))):
+        return s, m              # el servidor tiene clave de Mistral: su IA es Mistral, con el modelo que elija la persona (los gratuitos de OpenRouter no se usan)
     return s, ai.AIConfig(provider=prov, model=s.get("model", "") if prov != "server" or s.get("model") else "", api_key=key)
 
 
@@ -102,8 +104,9 @@ def get_settings(request: Request):
         k = decrypt(tok)
         info[p] = {"set": bool(k), "last4": k[-4:] if k else None}
     return {"email": user["email"], **s, "keys": info, "can_store_keys": _fernet() is not None,
-            "server_ai": bool(os.environ.get("OPENROUTER_API_KEY")),
-            "providers": {k: {"label": v["label"], "key": v["key"], "suggested": ai.SUGGESTED.get(k, [])} for k, v in ai.PROVIDERS.items()}}
+            "server_ai": ai.server_ai(), "server_mistral": bool(ai.server_mistral()), "server_model": ai.server_mistral_model() if ai.server_mistral() else None,
+            "providers": {k: {"label": ai.server_label() if k == "server" else v["label"], "key": v["key"],
+                              "suggested": ai.SUGGESTED["mistral"] if k == "server" and ai.server_mistral() else ai.SUGGESTED.get(k, [])} for k, v in ai.PROVIDERS.items()}}
 
 
 @router.put("/api/me/settings")
@@ -160,6 +163,8 @@ async def models(request: Request, provider: str):
     user = current(request)
     if provider not in ai.PROVIDERS:
         raise HTTPException(422, "Proveedor desconocido")
+    if provider == "server" and (m := ai.server_mistral()):     # IA del servidor en Mistral: sus modelos, con la clave del servidor (que no sale de aquí)
+        return {"provider": provider, "models": await ai.list_models(request.app.state.http, m)}
     _, keys = load(user["sub"])
     key = decrypt(keys[provider]) if provider in keys else None
     return {"provider": provider, "models": await ai.list_models(request.app.state.http, ai.AIConfig(provider, "", key))}

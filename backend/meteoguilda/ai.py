@@ -35,10 +35,12 @@ PROVIDERS = {
     "openrouter": {"label": "OpenRouter (mi clave)", "key": True, "base": BASE},
     "openai": {"label": "OpenAI (mi clave)", "key": True, "base": "https://api.openai.com/v1"},
     "anthropic": {"label": "Anthropic · Claude (mi clave)", "key": True, "base": "https://api.anthropic.com/v1"},
+    "mistral": {"label": "Mistral · UE (mi clave)", "key": True, "base": "https://api.mistral.ai/v1"},
 }
 # Sugerencias si no se puede listar el catálogo del proveedor
 SUGGESTED = {"openrouter": ["openrouter/free", "anthropic/claude-sonnet-5-5", "openai/gpt-4o-mini", "google/gemini-2.5-flash"],
-             "openai": ["gpt-4o-mini", "gpt-4o"], "anthropic": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"], "server": []}
+             "openai": ["gpt-4o-mini", "gpt-4o"], "anthropic": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+             "mistral": ["mistral-small-latest", "mistral-medium-latest", "mistral-large-latest"], "server": []}
 
 
 @dataclass
@@ -46,6 +48,33 @@ class AIConfig:
     provider: str = "server"
     model: str = ""
     api_key: str | None = None
+
+
+_MISTRAL_MODELO = re.compile(r"^[a-z0-9][a-z0-9.-]{1,79}$")      # «mistral-small-latest»; los de OpenRouter llevan «/» o «:free» y no valen aquí
+_MISTRAL_NO_CHAT = re.compile(r"(embed|moderation|ocr|transcribe|tts|voxtral)", re.I)
+
+
+def server_mistral_model() -> str:
+    return os.environ.get("MG_MISTRAL_MODEL") or "mistral-small-latest"
+
+
+def server_mistral(model: str | None = None) -> AIConfig | None:
+    """Si el servidor tiene `MISTRAL_API_KEY`, su IA es Mistral (de pago, UE) en vez de los modelos gratuitos de OpenRouter. `model` es el que ha elegido
+    la persona en sus ajustes; si está vacío o no es un nombre de modelo de Mistral (p. ej. uno de OpenRouter guardado antes), se usa `MG_MISTRAL_MODEL`."""
+    key = (os.environ.get("MISTRAL_API_KEY") or "").strip()
+    if not key:
+        return None
+    model = (model or "").strip()
+    return AIConfig(provider="mistral", model=model if _MISTRAL_MODELO.match(model) else server_mistral_model(), api_key=key)
+
+
+def server_ai() -> bool:
+    """¿Tiene el servidor IA propia (Mistral u OpenRouter)?"""
+    return bool(os.environ.get("MISTRAL_API_KEY") or os.environ.get("OPENROUTER_API_KEY"))
+
+
+def server_label() -> str:
+    return "Servidor de Guilda (Mistral, UE)" if os.environ.get("MISTRAL_API_KEY") else PROVIDERS["server"]["label"]
 
 
 def friendly_error(e: Exception) -> str:
@@ -74,7 +103,7 @@ async def complete(http: httpx.AsyncClient, cfg: AIConfig, system: str, messages
         r.raise_for_status()
         return "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text")
     base = PROVIDERS.get(cfg.provider, PROVIDERS["server"]).get("base", BASE)
-    key = cfg.api_key or os.environ.get("OPENROUTER_API_KEY")
+    key = cfg.api_key or (os.environ.get("OPENROUTER_API_KEY") if cfg.provider in ("server", "openrouter") else None)
     if not key:
         raise ValueError("Sin clave de API")
     r = await http.post(f"{base}/chat/completions", timeout=timeout, headers={"Authorization": f"Bearer {key}", "X-Title": "Meteo Guilda"},
@@ -100,6 +129,8 @@ async def list_models(http: httpx.AsyncClient, cfg: AIConfig) -> list[str]:
         ids = sorted(m["id"] for m in r.json()["data"])
         if cfg.provider == "openai":
             ids = [i for i in ids if i.startswith(("gpt", "o1", "o3", "o4", "chatgpt"))]
+        if cfg.provider == "mistral":
+            ids = [i for i in ids if not _MISTRAL_NO_CHAT.search(i)]
         return ids[:400]
     except Exception as e:  # noqa: BLE001
         log.warning("modelos de %s: %s", cfg.provider, e)

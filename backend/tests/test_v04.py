@@ -195,3 +195,71 @@ def test_recarga_con_enfriamiento(cli):
     assert cli.get("/api/forecast?lat=42.7&lon=0.9&refresh=1").json()["generado"] == a     # <5 min: devuelve la caché
     main._forecasts[main._key(42.7, 0.9)] = (time.time() - main.REFRESH_COOLDOWN - 5, main._forecasts[main._key(42.7, 0.9)][1])
     assert cli.get("/api/forecast?lat=42.7&lon=0.9&refresh=1").json()["generado"] > a      # pasado el enfriamiento, recalcula
+
+
+async def test_mistral_habla_con_su_api_y_nunca_recibe_la_clave_de_openrouter(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-de-openrouter")
+    vistas = []
+
+    def h(req):
+        vistas.append((str(req.url), req.headers.get("authorization")))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hola"}}]})
+    async with _mock(h) as c:
+        assert await ai.complete(c, ai.AIConfig("mistral", "mistral-small-latest", "clave-mistral"), "s", [{"role": "user", "content": "x"}]) == "hola"
+        with pytest.raises(ValueError):                                              # sin clave propia: no se le manda la de OpenRouter
+            await ai.complete(c, ai.AIConfig("mistral", "mistral-small-latest", None), "s", [{"role": "user", "content": "x"}])
+    assert vistas == [("https://api.mistral.ai/v1/chat/completions", "Bearer clave-mistral")]
+
+
+def test_con_clave_de_mistral_en_el_servidor_su_ia_es_mistral(cli, monkeypatch):
+    s = cli.get("/api/me/settings").json()
+    assert "mistral" in s["providers"] and "OpenRouter" in s["providers"]["server"]["label"]
+    monkeypatch.setenv("MISTRAL_API_KEY", "clave-mistral-servidor")
+    monkeypatch.setenv("MG_MISTRAL_MODEL", "mistral-medium-latest")
+    s = cli.get("/api/me/settings").json()
+    assert s["server_ai"] and s["provider"] == "server" and "Mistral" in s["providers"]["server"]["label"] and "clave-mistral" not in str(s)
+    usadas = []
+
+    async def falsa(http, cfg, system, messages, **k):
+        usadas.append((cfg.provider, k.get("model") or cfg.model, cfg.api_key))
+        return "OK"
+    monkeypatch.setattr(ai, "complete", falsa)
+    r = cli.post("/api/me/test").json()
+    assert r["ok"] and r["provider"] == "mistral" and r["model"] == "mistral-medium-latest"
+    assert usadas == [("mistral", "mistral-medium-latest", "clave-mistral-servidor")]
+    monkeypatch.delenv("OPENROUTER_API_KEY")                                           # sin OpenRouter, el servidor sigue teniendo IA (Mistral)
+    assert cli.get("/api/me/settings").json()["server_ai"]
+
+
+def test_con_mistral_en_el_servidor_cada_persona_elige_su_modelo(cli, monkeypatch):
+    monkeypatch.setenv("MISTRAL_API_KEY", "clave-mistral-servidor")
+    monkeypatch.delenv("MG_MISTRAL_MODEL", raising=False)
+    s = cli.get("/api/me/settings").json()
+    assert s["server_mistral"] and s["server_model"] == "mistral-small-latest" and "mistral-large-latest" in s["providers"]["server"]["suggested"]
+    usadas = []
+
+    async def falsa(http, cfg, system, messages, **k):
+        usadas.append(k.get("model") or cfg.model)
+        return "OK"
+    monkeypatch.setattr(ai, "complete", falsa)
+    for elegido, esperado in (("mistral-large-latest", "mistral-large-latest"), ("google/gemma-3:free", "mistral-small-latest"), ("", "mistral-small-latest")):
+        cli.put("/api/me/settings", json={"model": elegido})
+        assert cli.post("/api/me/test").json()["model"] == esperado
+    assert usadas == ["mistral-large-latest", "mistral-small-latest", "mistral-small-latest"]
+
+    vistas = []
+
+    async def lista(http, cfg):
+        vistas.append((cfg.provider, cfg.api_key))
+        return ["mistral-large-latest", "mistral-small-latest"]
+    monkeypatch.setattr(ai, "list_models", lista)
+    r = cli.get("/api/me/models?provider=server").json()
+    assert r["models"] == ["mistral-large-latest", "mistral-small-latest"] and vistas == [("mistral", "clave-mistral-servidor")]
+    assert "clave-mistral" not in str(r)
+
+
+async def test_la_lista_de_modelos_de_mistral_quita_los_que_no_son_de_chat():
+    def h(req):
+        return httpx.Response(200, json={"data": [{"id": i} for i in ("mistral-small-latest", "mistral-embed", "mistral-ocr-latest", "mistral-moderation-latest", "pixtral-large-latest")]})
+    async with _mock(h) as c:
+        assert await ai.list_models(c, ai.AIConfig("mistral", "", "k")) == ["mistral-small-latest", "pixtral-large-latest"]

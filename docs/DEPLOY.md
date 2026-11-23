@@ -110,6 +110,7 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 - **Cuaderno QSL:** el login identifica a la persona, pero el cuaderno sigue usando su clave secreta (`key` en las herramientas o `MG_LOGBOOK_KEY`).
 - **Mover a PRO:** cambia `MG_OIDC_ISSUER` al Hydra de PRO, vuelve a lanzar `desplegar_produccion.sh` y listo; los tokens emitidos con el otro servidor no valen.
 - **Clave de IA:** `OPENROUTER_API_KEY` reutiliza la de La cesta (copiada a `.env`); si la rotas allí, cámbiala también aquí y `docker compose up -d api`.
+- **Mistral (desde el 23-nov-2026):** con `MISTRAL_API_KEY` en `.env` (la misma que La cesta y Guilda Work) la IA del servidor es Mistral (`MG_MISTRAL_MODEL`, por defecto `mistral-small-latest`) y los modelos gratuitos de OpenRouter dejan de usarse. Cada persona puede además poner su propia clave de Mistral en Ajustes.
 
 ## 12. Ajustes de la cuenta, IA y asistente (v0.4)
 - **Ajustes** (icono del engranaje, arriba): pestañas *IA*, *Cuenta* y *Sincronización y API*.

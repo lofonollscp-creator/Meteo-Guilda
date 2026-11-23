@@ -41,17 +41,17 @@ function iaHTML() {
     <div id="ai-opts" ${d.ai_enabled ? "" : 'style="opacity:.5;pointer-events:none" aria-disabled="true"'}>
       <div class="field"><label for="ai-prov">Proveedor</label>
         <select id="ai-prov">${Object.entries(P).map(([id, v]) => `<option value="${id}" ${id === p ? "selected" : ""}>${esc(v.label)}</option>`).join("")}</select>
-        <p class="note">${p === "server" ? (d.server_ai ? "Usa los modelos gratuitos que el servidor tiene configurados. Los modelos gratuitos pueden registrar los textos; no incluyas datos sensibles." : "El servidor no tiene IA configurada: elige otro proveedor y añade tu clave.") : "Con tu propia clave, las consultas se envían a ese proveedor y se facturan en tu cuenta."}</p></div>
+        <p class="note">${p === "server" && d.server_mistral ? "Usa Mistral (empresa europea) con la clave del servidor de Guilda. Puedes elegir el modelo; vacío = el del servidor." : p === "server" ? (d.server_ai ? "Usa los modelos gratuitos que el servidor tiene configurados. Los modelos gratuitos pueden registrar los textos; no incluyas datos sensibles." : "El servidor no tiene IA configurada: elige otro proveedor y añade tu clave.") : "Con tu propia clave, las consultas se envían a ese proveedor y se facturan en tu cuenta."}</p></div>
       ${needKey ? `<div class="field"><label for="ai-key">Tu clave de ${esc(P[p].label.split(" (")[0])}</label>
         ${k?.set ? `<div class="row"><span class="ok">Clave guardada ••••${esc(k.last4 || "")}</span><button class="btn ghost sm danger" type="button" id="ai-delkey">Quitar clave</button></div>`
           : d.can_store_keys ? `<div class="row"><input id="ai-key" type="password" autocomplete="off" placeholder="Pega aquí tu clave de API"><button class="btn sm" type="button" id="ai-savekey">Guardar</button></div>`
           : '<p class="note bad">Este servidor no puede guardar claves todavía (falta configurar MG_SECRET_KEY).</p>'}
         <p class="note">Se guarda cifrada en el servidor y solo se usa para tus consultas; nunca se vuelve a mostrar.</p></div>` : ""}
       <div class="field"><label for="ai-model">Modelo ${p === "server" ? "(vacío = automático)" : ""}</label>
-        <div class="row"><input id="ai-model" type="text" list="ai-models" autocomplete="off" value="${esc(d.model || "")}" placeholder="${p === "server" ? "Automático" : (P[p]?.suggested?.[0] || "nombre del modelo")}">
+        <div class="row"><input id="ai-model" type="text" list="ai-models" autocomplete="off" value="${esc(d.model || "")}" placeholder="${p === "server" ? (d.server_mistral ? `Automático (${esc(d.server_model || "")})` : "Automático") : (P[p]?.suggested?.[0] || "nombre del modelo")}">
           <datalist id="ai-models">${(P[p]?.suggested || []).map((m) => `<option value="${esc(m)}">`).join("")}</datalist>
           <button class="btn ghost sm" type="button" id="ai-list">Ver modelos</button></div></div>
-      ${p === "server" ? '<div class="ai-status" id="ai-status" aria-live="polite"><div class="skeleton" style="height:70px;border-radius:16px"></div></div>' : ""}
+      ${p === "server" && !d.server_mistral ? '<div class="ai-status" id="ai-status" aria-live="polite"><div class="skeleton" style="height:70px;border-radius:16px"></div></div>' : ""}
       <div class="row"><button class="btn sm" type="button" id="ai-test">Probar conexión</button><span id="ai-res" class="note" role="status"></span></div>
     </div>`;
 }
