@@ -39,6 +39,14 @@ const HOLD = { home: "Pregunta sobre el tiempo, una ruta o la radio…", forecas
 const MODELS = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France", gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI", dmi_seamless: "DMI", metno_seamless: "MET Noruega", meteoswiss_icon_seamless: "MeteoSwiss", italia_meteo_arpae_icon_2i: "ARPAE (Italia)", jma_seamless: "JMA" };
 
 const place = () => ctx.place?.() || null;
+/** Sugerencias de la sección, con una primera según la hora y el lugar (mañana: hoy; tarde-noche: mañana). */
+function sugFor(w) {
+  const base = SUG[w] || SUG.radio, h = new Date().getHours(), lugar = (place()?.name || ctx.home?.()?.name || "").split(" (")[0];
+  if (!lugar || !["home", "forecast", "comparar"].includes(w)) return base;
+  const q = h < 12 ? `¿Qué tiempo hará hoy en ${lugar}?` : h < 20 ? `¿Cómo se pone la tarde en ${lugar}?` : `¿Qué tiempo hará mañana en ${lugar}?`;
+  return [q, ...base.filter((x) => x !== q)];
+}
+
 const qthTxt = () => { const q = LS.get("mg-qth", null); return q ? [q.name, q.locator].filter(Boolean).join(" · ") || "Mi ubicación" : "Sin ubicación guardada"; };
 function where() {   // «dónde estoy» en la app: sección + subsección para elegir sugerencias y textos
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean), s = ["forecast", "routes", "radio", "learn"].includes(p[0]) ? p[0] : "forecast";
@@ -99,7 +107,7 @@ export function mountAsk(colb) {
     input.placeholder = (HOLD[w] || HOLD.radio).replace("{p}", p?.name || "este lugar");
     cx.textContent = w === "learn" ? "Esta guía" : p && sec === "forecast" ? p.name : sec === "radio" ? (LS.get("mg-qth", null)?.locator || "Mi QTH") : h?.name || "";
     cx.hidden = !cx.textContent;
-    sug.innerHTML = (SUG[w] || SUG.radio).map((s) => `<button type="button">${esc(s)}</button>`).join("");
+    sug.innerHTML = sugFor(w).map((s) => `<button type="button">${esc(s)}</button>`).join("");
     wrap.hidden = sug.hidden = !aiOn();
     guard = true;
     if (mq.matches) { if (wrap.parentNode !== document.body) document.body.appendChild(wrap); if (sug.parentNode !== colb) colb.prepend(sug); }
@@ -185,7 +193,7 @@ function drawMsgs() {
     : `<div class="hello"><p class="sub">${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p><h3>${hello}.<br><span>¿Qué quieres saber?</span></h3>
       <div class="hintcards">${HINTS.map(([t, s, ic]) => `<button type="button" data-q="${esc(t)}"><span class="ico">${icon(ic, 19)}</span><span><b>${esc(t)}</b><small>${esc(s)}</small></span></button>`).join("")}</div></div>`;
   const hints = $("#chat-hints", el);
-  hints.innerHTML = list.length && list.at(-1).role === "assistant" && !list.at(-1).err ? (SUG[where()] || SUG.radio).slice(0, 3).map((s) => `<button type="button">${esc(s)}</button>`).join("") : "";
+  hints.innerHTML = list.length && list.at(-1).role === "assistant" && !list.at(-1).err ? sugFor(where()).slice(0, 3).map((s) => `<button type="button">${esc(s)}</button>`).join("") : "";
   hints.onclick = (e) => { const b = e.target.closest("button"); if (b) ask(b.textContent); };
   if (!box._cards) { box._cards = true; bindCards(box, (m, k) => msgs()[m]?.cards?.[k]); }
   box.onclick = async (e) => {

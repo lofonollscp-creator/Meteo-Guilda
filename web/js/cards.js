@@ -6,7 +6,8 @@ import { pushSettings } from "./sync.js";
 
 const rd = (v) => (v == null || isNaN(v) ? "–" : Math.round(v));
 const NIVEL = ["Favorable", "Precaución", "Desaconsejable"];
-const PLOT = { temp: ["Temperatura", "°", "serie"], lluvia: ["Lluvia", " mm", "lluvia"], viento: ["Viento", " km/h", "viento_serie"] };
+const PLOT = { temp: ["Temperatura", "°", "serie"], lluvia: ["Lluvia", " mm", "lluvia"], viento: ["Viento", " km/h", "viento_serie"], mar: ["Oleaje", " m", "serie"] };
+const BARS = (v) => v === "lluvia" || v === "mar";
 const hh = (t) => (t ? `${t.slice(11, 13)} h` : "");
 const short = (n = "") => n.split(" (")[0];
 
@@ -15,10 +16,10 @@ function plot(c, v) {
   const [, unit, key] = PLOT[v], raw = c[key] || [];
   if (raw.length < 3) return "";
   const W = 320, H = 96, L = 6, R = 6, T = 10, B = 20, n = raw.length, vals = raw.map((x) => (x == null ? 0 : x));
-  const hi = Math.max(...vals), lo = v === "lluvia" ? 0 : Math.min(...vals), span = Math.max(hi - lo, v === "lluvia" ? 1 : 2);
+  const hi = Math.max(...vals), lo = BARS(v) ? 0 : Math.min(...vals), span = Math.max(hi - lo, v === "lluvia" ? 1 : v === "mar" ? 0.5 : 2);
   const x = (i) => L + (i * (W - L - R)) / (n - 1), y = (val) => T + (1 - (val - lo) / span) * (H - T - B);
   let body = "";
-  if (v === "lluvia") {
+  if (BARS(v)) {
     const bw = ((W - L - R) / n) * 0.62;
     body = vals.map((val, i) => `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${y(val).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(val > 0 ? 2 : 0, H - B - y(val)).toFixed(1)}" rx="3" fill="var(--ai)" opacity=".85"/>`).join("");
   } else {
@@ -69,6 +70,26 @@ export function dataCard(c, m, k) {
       <p class="dc-q">${fav ? `¿Guardo <b>${esc(short(c.lugar))}</b> en tus lugares?` : `¿Pongo <b>${esc(short(c.lugar))}</b> como tu ubicación? El asistente y la previsión la usarán para «aquí».`}</p>
       <div class="dc-acts">${c.hecho === "no" ? `<span class="done" style="color:var(--ink-3)">Lo dejamos así</span>` : c.hecho ? `<span class="done">${icon("check", 14)} ${fav ? "Guardado" : "Ubicación actualizada"}</span>` : `<button type="button" class="pri" data-act="${esc(c.accion)}">${fav ? "Guardar" : "Usar como Mi ubicación"}</button><button type="button" class="ghost" data-act="no">Ahora no</button>`}</div></div>`;
   }
+  if (c.tipo === "comparar") {
+    const ls = c.lugares || [], mx = Math.max(...ls.map((l) => l.max_c ?? -99));
+    const rows = ls.map((l) => `<a class="cmp-r${l.max_c === mx ? " best" : ""}" href="#/forecast/p/${(+l.lat).toFixed(4)},${(+l.lon).toFixed(4)},${encodeURIComponent(l.nombre)}"><b>${esc(short(l.nombre))}</b><span>${rd(l.min_c)}° / ${rd(l.max_c)}°</span><span>${l.lluvia_48h_mm >= 0.5 ? l.lluvia_48h_mm + " mm" : "Seco"}</span><span>${rd(l.racha_max_kmh)} km/h</span></a>`).join("");
+    return `<div class="dcard" ${at}><div class="dc-h"><span>Comparación · 48 h</span></div><div class="cmp-h"><span></span><span>Mín / máx</span><span>Lluvia</span><span>Racha</span></div>${rows}
+      ${(c.veredicto || []).length ? `<ul class="cmp-v">${c.veredicto.map((v) => `<li>${esc(v)}</li>`).join("")}</ul>` : ""}
+      <div class="dc-acts"><button type="button" data-act="ask" data-q="¿Cuál me conviene más para salir mañana?">${icon("spark", 14)} ¿Cuál me conviene?</button></div></div>`;
+  }
+  if (c.tipo === "mar") {
+    const n = c.ahora || {}, m = c.maximo || {};
+    return `<div class="dcard" ${at}><div class="dc-h"><span>Mar · ${esc(short(c.lugar))}</span><a href="#/forecast/p/${(+c.lat).toFixed(4)},${(+c.lon).toFixed(4)},${encodeURIComponent(c.lugar)}">Abrir ${icon("right", 12)}</a></div>
+      <div class="dc-main"><b>${n.ola_m != null ? (+n.ola_m).toFixed(1) : "–"} m</b><div><span>${esc(n.estado || "")}${n.periodo_s ? ` · ${rd(n.periodo_s)} s` : ""}</span><span>${n.agua_c != null ? "Agua " + rd(n.agua_c) + "°" : ""}</span><span>Máx. 48 h: ${m.ola_m != null ? (+m.ola_m).toFixed(1) + " m" : "–"}</span></div></div>
+      <div class="dc-plot">${plot(c, "mar")}<div class="dc-tip" aria-live="polite"> </div></div>
+      <div class="dc-acts"><button type="button" data-act="ask" data-q="¿Es buen momento para bañarse o salir en barca en ${esc(short(c.lugar))}?">${icon("spark", 14)} ¿Salgo al mar?</button></div></div>`;
+  }
+  if (c.tipo === "satelites") {
+    const f = (t) => new Date(t).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    const rows = (c.pasos || []).map((x) => `<div class="sat-r"><b>${esc(x.satelite)}</b><span>${f(x.aos)}</span><span>${x.max_el}° máx.</span><span>${Math.round((x.duracion_s || 0) / 60)} min</span></div>`).join("");
+    return `<div class="dcard" ${at}><div class="dc-h"><span>Próximos pasos · ${esc(short(c.lugar))}</span></div>${rows}
+      <div class="dc-acts"><button type="button" data-act="ask" data-q="¿Qué frecuencia y modo uso en el mejor paso?">${icon("spark", 14)} ¿Qué frecuencia uso?</button></div></div>`;
+  }
   return "";
 }
 
@@ -108,6 +129,6 @@ export function bindCards(box, get) {
     const [name, unit, key] = PLOT[v], val = (c[key] || [])[i];
     svg.querySelector(".cur").setAttribute("x1", pts[i][0]); svg.querySelector(".cur").setAttribute("x2", pts[i][0]);
     const d = svg.querySelector(".cur-d"); d.setAttribute("cx", pts[i][0]); d.setAttribute("cy", pts[i][1]);
-    svg.parentElement.querySelector(".dc-tip").textContent = `${hh((c.horas || [])[i])} · ${name} ${val == null ? "–" : (v === "lluvia" ? val.toFixed(1) : rd(val))}${unit}`;
+    svg.parentElement.querySelector(".dc-tip").textContent = `${hh((c.horas || [])[i])} · ${name} ${val == null ? "–" : (BARS(v) ? val.toFixed(1) : rd(val))}${unit}`;
   });
 }

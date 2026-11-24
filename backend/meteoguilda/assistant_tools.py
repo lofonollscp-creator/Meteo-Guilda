@@ -198,6 +198,25 @@ def tarjeta_prevision(p: dict, datos: dict) -> dict | None:
             "dias": [{k: d.get(k) for k in ("fecha", "temp_min_c", "temp_max_c", "lluvia_mm", "racha_max_kmh")} for d in (datos.get("dias") or [])[:4]]}
 
 
+def tarjeta_comparar(r: dict) -> dict | None:
+    """Tarjeta de comparación: una fila por lugar con las cifras de 48 h tal cual salen de los modelos."""
+    ls = [{k: f.get(k) for k in ("nombre", "lat", "lon", "ahora_c", "min_c", "max_c", "lluvia_48h_mm", "racha_max_kmh")} for f in (r.get("lugares") or [])]
+    return {"tipo": "comparar", "lugares": ls, "veredicto": (r.get("veredicto") or [])[:3]} if len(ls) >= 2 else None
+
+
+def tarjeta_mar(p: dict, r: dict) -> dict | None:
+    if not r.get("hay_mar"):
+        return None
+    hs = r.get("horas") or []
+    return {"tipo": "mar", "lugar": p["name"], "lat": round(p["lat"], 4), "lon": round(p["lon"], 4), "ahora": r.get("ahora"), "maximo": r.get("maximo_48h"),
+            "serie": [h.get("ola_m") for h in hs[::3][:16]], "horas": [h.get("hora") for h in hs[::3][:16]]}
+
+
+def tarjeta_satelites(p: dict, r: dict) -> dict | None:
+    ps = [{k: x.get(k) for k in ("satelite", "aos", "aos_az", "max_el", "duracion_s")} for x in (r.get("pasos") or [])[:4]]
+    return {"tipo": "satelites", "lugar": p["name"], "pasos": ps} if ps else None
+
+
 async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
     """Ejecuta una herramienta; devuelve {nombre, lugar?, ok, resultado|error}."""
     out: dict = {"nombre": nombre}
@@ -222,7 +241,9 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             out["lugar"] = ", ".join(p["name"] for p in ps)
             for p in ps:
                 _lug(env, p)
-            return {**out, "ok": True, "resultado": await _api(env, "GET", "/api/compare", params={"pts": pts})}
+            r = await _api(env, "GET", "/api/compare", params={"pts": pts})
+            out["tarjeta"] = tarjeta_comparar(r)
+            return {**out, "ok": True, "resultado": r}
         if nombre == "ruta":
             pts = [a.get("desde"), *(a.get("vias") or []), a.get("hasta")]
             ps = await asyncio.gather(*(resolver(env, x) for x in pts))
@@ -254,6 +275,7 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             r = await _api(env, "GET", "/api/air", params=c)
         elif nombre == "mar":
             r = await _api(env, "GET", "/api/mar", params=c)
+            out["tarjeta"] = tarjeta_mar(p, r)
         elif nombre == "actividad":
             r = await _api(env, "GET", "/api/activity", params={**c, "activity": str(a.get("actividad") or "")})
         elif nombre == "observaciones":
@@ -270,6 +292,7 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
                  for x in await _api(env, "GET", "/api/repeaters/near", params=prm)]
         elif nombre == "satelites":
             r = await _api(env, "GET", "/api/satellites/passes", params={**c, "hours": min(max(float(a.get("horas") or 24), 1), 48)})
+            out["tarjeta"] = tarjeta_satelites(p, r)
         elif nombre == "astro":
             r = await _api(env, "GET", "/api/astro", params=c)
         elif nombre == "portatil":

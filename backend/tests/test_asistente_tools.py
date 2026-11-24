@@ -118,3 +118,18 @@ def test_pregunta_de_tiempo_con_lugar_abierto_crea_la_tarjeta_aunque_el_modelo_n
     d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿Qué tiempo hace aquí?"}], "lat": 42.7, "lon": 0.85, "name": "Garòs"}).json()
     assert d["tarjetas"][0]["lugar"] == "Lleida"                         # «aquí» = Mi ubicación
     cli.put("/api/me/settings", json={"home": None})
+
+
+def test_tarjetas_comparar_mar_y_satelites():
+    c = at.tarjeta_comparar({"lugares": [{"nombre": "A", "lat": 1, "lon": 2, "ahora_c": 10, "min_c": 8, "max_c": 15, "lluvia_48h_mm": 0, "racha_max_kmh": 20, "series": {"x": 1}},
+                                         {"nombre": "B", "lat": 1, "lon": 3, "ahora_c": 11, "min_c": 9, "max_c": 17, "lluvia_48h_mm": 3, "racha_max_kmh": 30}], "veredicto": ["B es más cálido"] * 5})
+    assert c["tipo"] == "comparar" and len(c["lugares"]) == 2 and "series" not in c["lugares"][0] and len(c["veredicto"]) == 3
+    assert at.tarjeta_comparar({"lugares": [{"nombre": "A"}]}) is None
+    p = {"name": "Sitges", "lat": 41.2, "lon": 1.8}
+    assert at.tarjeta_mar(p, {"hay_mar": False}) is None
+    horas = [{"hora": f"2026-11-24T{h % 24:02d}:00", "ola_m": 0.5 + h / 10} for h in range(48)]
+    m = at.tarjeta_mar(p, {"hay_mar": True, "ahora": {"ola_m": 0.5}, "maximo_48h": {"ola_m": 5.2}, "horas": horas})
+    assert m["tipo"] == "mar" and len(m["serie"]) == 16 and m["lugar"] == "Sitges"
+    s = at.tarjeta_satelites(p, {"pasos": [{"satelite": "ISS", "aos": "2026-11-24T20:00:00+00:00", "aos_az": 10, "max_el": 55, "duracion_s": 400, "traza": [[1, 2]]}] * 6})
+    assert s["tipo"] == "satelites" and len(s["pasos"]) == 4 and "traza" not in s["pasos"][0]
+    assert at.tarjeta_satelites(p, {"pasos": []}) is None

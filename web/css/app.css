@@ -1105,3 +1105,18 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .chat.full .chat-hist{display:flex;flex-direction:column}
 .chat.full .chat-hist .hist-list{flex:1;min-height:0;overflow-y:auto}
 .chat-hist .hist-st{margin-top:auto;border-top:1px solid var(--line)}
+
+/* Tarjetas: comparar, mar y satélites */
+.dcard .cmp-h,.dcard .cmp-r,.dcard .sat-r{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:8px;align-items:center;font-size:13px;color:var(--ink-2)}
+.dcard .cmp-h{margin-top:10px;font-size:11.5px;color:var(--ink-3);font-weight:600}
+.dcard .cmp-r,.dcard .sat-r{padding:11px 10px;margin:0 -10px;border-radius:12px;text-decoration:none;min-height:44px;box-sizing:border-box}
+.dcard a.cmp-r:hover{background:var(--ai-soft)}
+.dcard .cmp-r b,.dcard .sat-r b{color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dcard .cmp-r.best b::after{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:#1f8a5b;margin-left:7px;vertical-align:middle}
+.dcard .cmp-v{margin:8px 0 0;padding:11px 14px 11px 28px;background:var(--panel,var(--bg));border-radius:14px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+@media (max-width:480px){.dcard .cmp-h,.dcard .cmp-r,.dcard .sat-r{font-size:12px;gap:4px}}
+.chat .dcard a.cmp-r{color:var(--ink-2);text-decoration:none}
+.chat .dcard a.cmp-r span{color:var(--ink-2)}
+.chat .dcard a.cmp-r b{color:var(--ink);text-decoration:none}
+.chat .dcard .dc-svg{overflow:hidden}
+.chat .dcard .cmp-r,.chat .dcard .sat-r{padding:8px 10px}
