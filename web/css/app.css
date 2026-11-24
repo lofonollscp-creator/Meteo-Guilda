@@ -1102,3 +1102,6 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .chat-hist .hist-st span{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .chat-hist .hist-st .dot{width:7px;height:7px;border-radius:50%;background:#1f8a5b;flex:none}
 .chat-hist .hist-st small{font-size:12px;color:var(--ink-3);margin-top:2px}
+.chat.full .chat-hist{display:flex;flex-direction:column}
+.chat.full .chat-hist .hist-list{flex:1;min-height:0;overflow-y:auto}
+.chat-hist .hist-st{margin-top:auto;border-top:1px solid var(--line)}
