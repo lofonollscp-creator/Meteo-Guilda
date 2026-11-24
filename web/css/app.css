@@ -1090,3 +1090,9 @@ dialog#dlg .qsl-acts .btn:focus-visible{outline-offset:2px}
 .chat .hints button{flex:none;white-space:nowrap}
 .chat .orb{border:0;padding:0;outline:0}
 .chat .orb:focus-visible{outline:2px solid var(--ai);outline-offset:6px}
+
+/* ---------- Pulidos: título de página con aire bajo la cabecera móvil, diálogos sin aro de foco, texto de ajustes legible ---------- */
+@media (max-width:1180px){.colb{padding-top:74px}.cola{padding-top:56px}}
+dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
+.acct .sw span small{font-size:12.5px;line-height:1.45}
+.acct .sw input{accent-color:var(--ai)}
