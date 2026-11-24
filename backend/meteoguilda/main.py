@@ -443,8 +443,11 @@ async def assistant(request: Request, req: ChatReq):
     http = H(request)
     system = ASSISTANT_SYSTEM + f"\nHoy es {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
     home = req.home.model_dump() if req.home else s.get("home")
+    ctx_datos: dict[str, dict] = {}       # datos ya cargados del lugar que se mira y de «Mi ubicación» (para la tarjeta)
+
     async def block(title: str, lat: float, lon: float) -> str:
         data = await build_forecast(http, lat, lon)
+        ctx_datos[f"{lat:.4f},{lon:.4f}"] = data["datos"]
         return f"\n\n{title} (lat {lat:.3f}, lon {lon:.3f}), medias entre modelos:\n" + json.dumps(ai.ai_view(data["datos"], 12), ensure_ascii=False, separators=(",", ":"))
     try:
         viewing = req.lat is not None and req.lon is not None
@@ -496,6 +499,7 @@ async def assistant(request: Request, req: ChatReq):
         viendo={"name": req.name or "punto", "lat": req.lat, "lon": req.lon} if req.lat is not None and req.lon is not None else None,
         casa={"name": home.get("name") or "Mi ubicación", "lat": home["lat"], "lon": home["lon"]} if home else None)
     usadas: list[dict] = []
+    pregunta = req.messages[-1].content            # la última pregunta de la persona (msgs crece con los resultados de herramientas)
     system += assistant_tools.catalogo_texto()
     for paso in range(assistant_tools.MAX_PASOS):
         ultima = paso == assistant_tools.MAX_PASOS - 1
@@ -504,8 +508,18 @@ async def assistant(request: Request, req: ChatReq):
         if not llamadas or ultima:
             respuesta = assistant_tools.limpiar(text)
             if respuesta:
-                return {"answer": respuesta, "model": model, "herramientas": assistant_tools.resumen_uso(usadas), "lugares": env.usados[:6],
-                        "tarjetas": [r["tarjeta"] for r in usadas if r.get("tarjeta")][:3]}
+                tarjetas = [r["tarjeta"] for r in usadas if r.get("tarjeta")][:3]
+                uso = assistant_tools.resumen_uso(usadas)
+                # el modelo contesta con los datos del lugar abierto sin llamar a herramientas: la tarjeta sale igual, de esos mismos datos
+                if not any(t["tipo"] == "prevision" for t in tarjetas) and assistant_tools.es_pregunta_de_tiempo(pregunta):
+                    lug = assistant_tools.lugar_de_contexto(pregunta, env)
+                    datos = ctx_datos.get(f"{lug['lat']:.4f},{lug['lon']:.4f}") if lug else None
+                    card = assistant_tools.tarjeta_prevision(lug, datos) if datos else None
+                    if card:
+                        tarjetas = [card, *tarjetas][:3]
+                        uso = [{"nombre": "prevision", "etiqueta": "Previsión de modelos", "lugar": lug["name"], "ok": True}, *uso]
+                        env.usados.insert(0, {"name": lug["name"], "lat": round(lug["lat"], 4), "lon": round(lug["lon"], 4)})
+                return {"answer": respuesta, "model": model, "herramientas": uso, "lugares": env.usados[:6], "tarjetas": tarjetas}
             raise HTTPException(502, "La IA no ha respondido")
         res = await assistant_tools.ejecutar_todas(env, llamadas)
         usadas += res

@@ -166,6 +166,19 @@ def _lug(env: Entorno, p: dict) -> dict:
     return d
 
 
+_TIEMPO = re.compile(r"tiempo|llov|lluvi|chub|temperatur|viento|fr[ií]o|calor|nube|nublad|nieve|nevar|niebla|previsi|pron[oó]stico|ma[ñn]ana|hoy\b|esta (tarde|noche)|fin de semana|s[aá]bado|domingo|lunes|martes|mi[eé]rcoles|jueves|viernes|paraguas|abrigo|\bropa\b|salir|caminar|excursi[oó]n|playa|helada|tormenta", re.I)
+
+
+def es_pregunta_de_tiempo(texto: str) -> bool:
+    return bool(_TIEMPO.search(texto or ""))
+
+
+def lugar_de_contexto(texto: str, env: "Entorno") -> dict | None:
+    """El lugar al que se refiere la pregunta cuando no nombra otro: «aquí/mi ubicación» -> Mi ubicación; si no, el que se está viendo."""
+    aqui = re.search(r"\baqu[ií]\b|mi ubicaci[oó]n|donde estoy|\bcasa\b", texto or "", re.I)
+    return (env.casa or env.viendo) if aqui else (env.viendo or env.casa)
+
+
 def _m(x, k="mean"):
     return x.get(k) if isinstance(x, dict) else x
 

@@ -103,3 +103,18 @@ def test_la_tarjeta_de_prevision_trae_series_y_contraste(cli, monkeypatch):  # n
     monkeypatch.setattr(ai, "complete", comp)
     t = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "x"}]}).json()["tarjetas"][0]
     assert len(t["lluvia"]) == len(t["viento_serie"]) == len(t["horas"]) == 12 and t["modelos"] >= 1 and "contraste" in t
+
+
+def test_pregunta_de_tiempo_con_lugar_abierto_crea_la_tarjeta_aunque_el_modelo_no_llame_herramientas(cli, monkeypatch):  # noqa: F811
+    async def comp(http, cfg, system, messages, **k):
+        return "Hace frío, 9 grados."
+    monkeypatch.setattr(ai, "complete", comp)
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿Qué tiempo hace?"}], "lat": 42.7, "lon": 0.85, "name": "Garòs"}).json()
+    assert [t["tipo"] for t in d["tarjetas"]] == ["prevision"] and d["tarjetas"][0]["lugar"] == "Garòs"
+    assert d["herramientas"][0]["nombre"] == "prevision" and d["lugares"][0]["name"] == "Garòs"
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿Cuál es la capital de Francia?"}], "lat": 42.7, "lon": 0.85, "name": "Garòs"}).json()
+    assert d["tarjetas"] == []                                           # fuera del tiempo: sin tarjeta
+    cli.put("/api/me/settings", json={"home": {"lat": 41.6, "lon": 0.6, "name": "Lleida"}})
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿Qué tiempo hace aquí?"}], "lat": 42.7, "lon": 0.85, "name": "Garòs"}).json()
+    assert d["tarjetas"][0]["lugar"] == "Lleida"                         # «aquí» = Mi ubicación
+    cli.put("/api/me/settings", json={"home": None})

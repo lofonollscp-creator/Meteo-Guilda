@@ -182,7 +182,9 @@ def test_asistente_usa_datos_del_lugar_y_el_proveedor_elegido(cli, monkeypatch):
     cli.put("/api/me/key", json={"provider": "anthropic", "key": "sk-ant-abcdefgh"})
     cli.put("/api/me/settings", json={"provider": "anthropic", "model": "claude-sonnet-5-5"})
     r = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿Mañana?"}], "lat": 42.7, "lon": 0.9, "name": "Garòs"})
-    assert r.status_code == 200 and r.json() == {"answer": "Mañana, lluvia débil.", "model": "claude-sonnet-5-5", "herramientas": [], "lugares": [], "tarjetas": []}
+    d = r.json()
+    assert r.status_code == 200 and d["answer"] == "Mañana, lluvia débil." and d["model"] == "claude-sonnet-5-5"
+    assert [t["tipo"] for t in d["tarjetas"]] == ["prevision"] and d["tarjetas"][0]["lugar"] == "Garòs"   # pregunta de tiempo con lugar abierto: tarjeta con sus datos
     assert visto["cfg"].provider == "anthropic" and visto["cfg"].api_key == "sk-ant-abcdefgh"
     assert "Garòs" in visto["system"] and '"tramos"' in visto["system"] and "por_modelo" not in visto["system"]
     assert cli.post("/api/assistant", json={"messages": [{"role": "assistant", "content": "x"}]}).status_code in (200, 422, 502)
