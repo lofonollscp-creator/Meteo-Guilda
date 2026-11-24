@@ -26,6 +26,12 @@ async function patch(id, p) { if (syncing()) return call(`/api/qso/${id}`, { met
 async function del(id) { if (syncing()) return call(`/api/qso/${id}`, { method: "DELETE" }); LS.set("mg-qso", localAll().filter((x) => x.id !== id)); }
 /** Anota un contacto desde fuera del cuaderno (asistente): en la cuenta sincronizada o en este dispositivo. */
 export const addQso = (q) => add(q);
+/** Bandas en las que has operado, de más a menos usadas, con la clave normalizada («20m») para compararlas con otras pantallas. */
+export async function bandasHabituales() {
+  const c = {};
+  for (const q of await load().catch(() => [])) if (q.band) { const k = String(q.band).toLowerCase().replace(/\s/g, ""); c[k] = (c[k] || 0) + 1; }
+  return Object.entries(c).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ k, n }));
+}
 export async function quickStats() { const r = await load(); return r.length ? { total: r.length, confirmados: r.filter((q) => q.qsl_rcvd).length, indicativos: new Set(r.map((q) => q.call)).size } : null; }
 
 /* ---------- ADIF ---------- */

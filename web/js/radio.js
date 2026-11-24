@@ -381,20 +381,22 @@ async function ventanas() {
   $("#vmodo").addEventListener("click", (e) => { const b = e.target.closest("[data-v]"); if (b) { LS.set("mg-radio-modo", b.dataset.v); pushSettings(); ventanas(); } });
   const at = here(); ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 8);
   try {
-    const d = await api(`/api/radio/ventanas?lat=${at.lat}&lon=${at.lon}&modo=${modo}`);
+    const [d, mias] = await Promise.all([api(`/api/radio/ventanas?lat=${at.lat}&lon=${at.lon}&modo=${modo}`), qsl.bandasHabituales().catch(() => [])]);
     if (my !== req) return;
+    const mio = new Set(mias.map((x) => x.k)), esMia = (b) => mio.has(String(b).toLowerCase().replace(/\s/g, ""));          // tus bandas van primero y con estrella
     const T = d.tramos, hm = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }), dia = (iso) => new Date(iso).toLocaleDateString("es", { weekday: "short", day: "numeric" }).replace(".", "");
     const cuando = (iso) => `${dia(iso)} ${hm(iso)}–${hm(new Date(+new Date(iso) + 3 * 3600e3))}`;
     const nombre = { hf: "HF", tropo: "Tropo VHF/UHF", sat: "Satélites", general: "Mejor momento" };
     const ok = (t) => modo !== "portatil" || t.campo.nivel < 2;                       // en portátil, un tramo con tiempo rojo no se recomienda
     const mejorDe = (capa) => T.filter(ok).reduce((m, t) => (t[capa].nota > (m?.[capa].nota ?? 39) ? t : m), null);
     const mejores = [["hf", mejorDe("hf")], ["tropo", mejorDe("tropo")], ["sat", mejorDe("sat")]].filter(([, t]) => t);
-    const capaTxt = { hf: (t) => `${t.hf.bandas.slice(0, 3).join(", ")} <small>${esc(t.hf.motivo)}</small>`, tropo: (t) => `${esc(t.tropo.cat)} <small>${esc(t.tropo.motivo)}</small>`,
+    const capaTxt = { hf: (t) => `${[...t.hf.bandas].sort((a, b) => esMia(b) - esMia(a)).slice(0, 3).map((b) => (esMia(b) ? `★ ${esc(b)}` : esc(b))).join(", ")} <small>${esc(t.hf.motivo)}</small>`, tropo: (t) => `${esc(t.tropo.cat)} <small>${esc(t.tropo.motivo)}</small>`,
       sat: (t) => `${esc(t.sat.pasos[0]?.satelite || "")} a ${t.sat.pasos[0]?.max_el}° <small>paso a las ${hm(t.sat.pasos[0]?.aos)}</small>` };
     const aviso = modo === "portatil" ? T.filter((t) => t.campo.nivel === 2) : [];
     const fuentesOff = Object.entries({ tropo: "tropo", solar: "estado solar (Kp/SFI)", satelites: "satélites" }).filter(([k]) => !d.fuentes[k]).map(([, v]) => v);
     $("#vv").innerHTML = `${aviso.length ? `<div class="warn-note" style="margin-top:0">${icon("bolt", 18)}<span><b>Tiempo adverso para operar fuera</b>: ${[...new Set(aviso.flatMap((t) => t.campo.motivos))].slice(0, 3).map(esc).join(" · ")}. Esos tramos salen en cero.</span></div>` : ""}
       <section class="sec"><div class="label">Mejores momentos <em>${modo === "portatil" ? "contando el tiempo para la antena" : "para tu QTH"}</em></div>
+        ${mias.length ? `<p style="margin:0 0 10px;font-size:13px;color:var(--ink-3)">★ = banda en la que ya has operado (${mias.slice(0, 4).map((x) => `${esc(x.k)} · ${x.n}`).join(", ")}). Salen primero entre las recomendadas.</p>` : ""}
         ${mejores.length ? `<div class="windows">${mejores.map(([c, t]) => `<div class="win"><span class="pill lv0"><i></i>${nombre[c]} · ${t[c].nota}/100</span><b>${esc(cuando(t.desde))}</b><span>${capaTxt[c](t)}</span></div>`).join("")}</div>` : '<p class="empty">Ningún tramo destaca en las próximas 48 h.</p>'}</section>
       <section class="sec"><div class="label">Próximas 48 h <em>más oscuro = mejor</em></div><div class="strip" id="vstrip"></div>
         <div class="legend" style="margin-top:8px"><span>Toca un tramo para ver las notas</span></div></section>
