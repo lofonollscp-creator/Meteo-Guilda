@@ -3,6 +3,8 @@ import { esc, LS, toLocator } from "./util.js";
 import { icon } from "./icons.js";
 import { setQth } from "./qth.js";
 import { pushSettings } from "./sync.js";
+import { addQso } from "./qsl.js";
+import { programarPaso } from "./recordatorio.js";
 
 const rd = (v) => (v == null || isNaN(v) ? "–" : Math.round(v));
 const NIVEL = ["Favorable", "Precaución", "Desaconsejable"];
@@ -43,6 +45,9 @@ const contraste = (k) => {
   return `<div class="dc-obs ${esc(k.acuerdo)}"><span class="dot"></span><div><b>${ok ? "Las estaciones reales coinciden" : k.acuerdo === "medio" ? "Estaciones reales con ligera desviación" : "Las estaciones reales discrepan"}</b><small>${esc(bits)} · ${k.estaciones} ${k.estaciones === 1 ? "estación" : "estaciones"} (${esc((k.fuentes || []).join(", "))})</small></div></div>`;
 };
 
+const qsoTxt = (q = {}) => `¿Anoto el contacto con <b>${esc(q.call)}</b>${[q.band, q.mode, q.freq_mhz && q.freq_mhz + " MHz", q.rst_sent && "RST " + q.rst_sent + "/" + (q.rst_rcvd || "–")].filter(Boolean).length ? " (" + esc([q.band, q.mode, q.freq_mhz && q.freq_mhz + " MHz", q.rst_sent && "RST " + q.rst_sent + "/" + (q.rst_rcvd || "–")].filter(Boolean).join(" · ")) + ")" : ""} en tu cuaderno, con la fecha y hora de ahora?`;
+const pasoTxt = (p = {}, lugar = "") => `¿Te aviso 5 min antes del paso de <b>${esc(p.satelite)}</b> sobre ${esc(short(lugar))}? Sale a las ${p.aos ? new Date(p.aos).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }) : "–"} y llega a ${p.max_el}° de elevación. <small>Solo suena con esta pestaña abierta.</small>`;
+
 /** HTML de una tarjeta. `m`/`k`: posición en la conversación (para la interacción). */
 export function dataCard(c, m, k) {
   const at = `data-m="${m}" data-k="${k}"`;
@@ -65,10 +70,15 @@ export function dataCard(c, m, k) {
       <div class="dc-acts"><button type="button" data-act="ask" data-q="¿Y si salgo antes o más tarde?">${icon("clock", 14)} ¿Y si salgo antes?</button></div></div>`;
   }
   if (c.tipo === "accion") {
-    const fav = c.accion === "favorito";
-    return `<div class="dcard act" ${at}><div class="dc-h"><span>${fav ? "Guardar en favoritos" : "Usar como Mi ubicación"}</span></div>
-      <p class="dc-q">${fav ? `¿Guardo <b>${esc(short(c.lugar))}</b> en tus lugares?` : `¿Pongo <b>${esc(short(c.lugar))}</b> como tu ubicación? El asistente y la previsión la usarán para «aquí».`}</p>
-      <div class="dc-acts">${c.hecho === "no" ? `<span class="done" style="color:var(--ink-3)">Lo dejamos así</span>` : c.hecho ? `<span class="done">${icon("check", 14)} ${fav ? "Guardado" : "Ubicación actualizada"}</span>` : `<button type="button" class="pri" data-act="${esc(c.accion)}">${fav ? "Guardar" : "Usar como Mi ubicación"}</button><button type="button" class="ghost" data-act="no">Ahora no</button>`}</div></div>`;
+    const T = {
+      favorito: ["Guardar en favoritos", `¿Guardo <b>${esc(short(c.lugar))}</b> en tus lugares?`, "Guardar", "Guardado"],
+      ubicacion: ["Usar como Mi ubicación", `¿Pongo <b>${esc(short(c.lugar))}</b> como tu ubicación? El asistente y la previsión la usarán para «aquí».`, "Usar como Mi ubicación", "Ubicación actualizada"],
+      qso: ["Anotar en el cuaderno QSL", qsoTxt(c.qso), "Anotar", "Anotado en tu cuaderno"],
+      paso: ["Aviso de paso", pasoTxt(c.paso, c.lugar), "Avisarme", "Aviso programado"],
+    }[c.accion] || ["Acción", "", "Hacer", "Hecho"];
+    return `<div class="dcard act" ${at}><div class="dc-h"><span>${T[0]}</span></div>
+      <p class="dc-q">${T[1]}</p>
+      <div class="dc-acts">${c.hecho === "no" ? `<span class="done" style="color:var(--ink-3)">Lo dejamos así</span>` : c.hecho ? `<span class="done">${icon("check", 14)} ${T[3]}</span>` : `<button type="button" class="pri" data-act="${esc(c.accion)}">${T[2]}</button><button type="button" class="ghost" data-act="no">Ahora no</button>`}</div></div>`;
   }
   if (c.tipo === "comparar") {
     const ls = c.lugares || [], mx = Math.max(...ls.map((l) => l.max_c ?? -99));
@@ -94,7 +104,13 @@ export function dataCard(c, m, k) {
 }
 
 /** Ejecuta una acción sobre un lugar; devuelve el texto de confirmación. */
-export function accion(tipo, c) {
+export async function accion(tipo, c) {
+  if (tipo === "qso") {
+    const q = { ...c.qso, qso_at: new Date().toISOString().slice(0, 16) + ":00Z" };
+    await addQso(q);
+    return `Contacto con ${q.call} anotado`;
+  }
+  if (tipo === "paso") return programarPaso(c.paso);
   const lat = +(+c.lat).toFixed(4), lon = +(+c.lon).toFixed(4), name = short(c.lugar);
   if (tipo === "favorito") {
     const ev = new CustomEvent("mg:fav", { detail: { name, sub: (c.lugar.match(/\((.*)\)/) || [])[1] || "", lat, lon } });

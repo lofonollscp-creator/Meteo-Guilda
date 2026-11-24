@@ -60,7 +60,7 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Ajustes: IA interna sí/no, proveedor, modelo | `GET/PUT /api/me/settings` | `get_account_settings`, `set_ai_settings` (OAuth) |
 | Ver modelos de un proveedor | `GET /api/me/models?provider=` | `list_ai_models` (OAuth) |
 | Probar la conexión de IA | `POST /api/me/test` | `test_ai_connection` (OAuth) |
-| Asistente de chat (con el lugar abierto y Mi ubicación) | `POST /api/assistant` | `ask_assistant` (OAuth) |
+| Asistente de chat (con el lugar abierto y Mi ubicación) | `POST /api/assistant` (y `/api/assistant/stream` en flujo) | `ask_assistant` (OAuth) |
 | Estado del servicio | `GET /api/health` | `server_status` |
 
 ## Excepciones (solo web o solo administración)

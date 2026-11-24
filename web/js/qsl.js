@@ -24,6 +24,8 @@ async function add(q) {
 }
 async function patch(id, p) { if (syncing()) return call(`/api/qso/${id}`, { method: "PATCH", headers: JSONH, body: JSON.stringify(p) }); const all = localAll(), q = all.find((x) => x.id === id); Object.assign(q, p); LS.set("mg-qso", all); }
 async function del(id) { if (syncing()) return call(`/api/qso/${id}`, { method: "DELETE" }); LS.set("mg-qso", localAll().filter((x) => x.id !== id)); }
+/** Anota un contacto desde fuera del cuaderno (asistente): en la cuenta sincronizada o en este dispositivo. */
+export const addQso = (q) => add(q);
 export async function quickStats() { const r = await load(); return r.length ? { total: r.length, confirmados: r.filter((q) => q.qsl_rcvd).length, indicativos: new Set(r.map((q) => q.call)).size } : null; }
 
 /* ---------- ADIF ---------- */

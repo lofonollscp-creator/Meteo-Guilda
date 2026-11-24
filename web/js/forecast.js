@@ -444,11 +444,16 @@ async function paintReading(d) {
 async function loadInsights(at, my) {
   const box = $("#insights"); if (!box) return;
   const q = `lat=${at.lat}&lon=${at.lon}`, nm = at.name || places[0]?.name || "";
-  const [av, act, sat] = await Promise.all([api(`/api/avisos?${q}`).catch(() => null), api(`/api/activity?activity=senderismo&${q}`).catch(() => null), api(`/api/satellites/passes?${q}&hours=24&min_el=15`).catch(() => null)]);
+  const [av, act, sat, fc] = await Promise.all([api(`/api/avisos?${q}`).catch(() => null), api(`/api/activity?activity=senderismo&${q}`).catch(() => null), api(`/api/satellites/passes?${q}&hours=24&min_el=15`).catch(() => null), api(`/api/forecast?${q}`).catch(() => null)]);
   if (my !== req || !$("#insights")) return;
   const dia = (iso) => new Date(iso).toLocaleDateString("es", { weekday: "long" }), hm = (iso) => iso.slice(11, 16), rows = [];
   const a = av?.avisos?.[0];
   if (a) rows.push({ ic: "warn", cls: `lv-${a.color}`, t: `Aviso ${a.color}: ${a.evento}`, s: `${a.zona}${a.hasta ? ` · hasta ${new Date(a.hasta).toLocaleString("es", { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : ""}`, ask: `¿Qué implica el aviso ${a.color} de ${a.evento} en ${a.zona}?`, cta: "Preguntar" });
+  const k = fc?.datos?.contraste;                 // estaciones reales frente a modelos: solo se avisa si no encajan
+  if (k && k.acuerdo !== "alto") {
+    const bits = [k.temp && `${k.temp.obs}° medidos frente a ${k.temp.modelo}° de los modelos`, k.viento && `viento ${k.viento.obs} frente a ${k.viento.modelo} km/h`].filter(Boolean).join(" · ");
+    rows.push({ ic: "info", cls: k.acuerdo === "bajo" ? "lv-naranja" : "lv-amarillo", t: k.acuerdo === "bajo" ? "Las estaciones reales discrepan de los modelos" : "Las estaciones reales se desvían algo de los modelos", s: `${bits} · ${k.estaciones} ${k.estaciones === 1 ? "estación" : "estaciones"}`, ask: `Las estaciones cercanas no coinciden con los modelos en ${nm}: ¿qué debo esperar las próximas horas?`, cta: "Preguntar" });
+  }
   const w = act?.ventanas?.[0];
   if (w) rows.push({ ic: "route", t: `Mejor ventana para caminar: ${dia(w.desde)} ${hm(w.desde)}–${hm(w.hasta)}`, s: `${w.puntuacion}/100${w.temp_c ? ` · ${w.temp_c[0]}–${w.temp_c[1]} °C` : ""} · viento hasta ${w.viento_kmh_max} km/h${w.lluvia_mm ? ` · ${nf1.format(w.lluvia_mm)} mm` : " · sin lluvia"}`, ask: `Prepárame una salida a caminar el ${dia(w.desde)} de ${hm(w.desde)} a ${hm(w.hasta)}`, cta: "Preguntar" });
   const p = sat?.pasos?.[0];

@@ -202,7 +202,8 @@ function drawMsgs() {
     if (ac) {
       const card = ac.closest(".dcard"), c = msgs()[+card.dataset.m]?.cards?.[+card.dataset.k]; if (!c) return;
       if (ac.dataset.act === "no") { c.hecho = "no"; save(); drawMsgs(); return; }
-      const t = accion(ac.dataset.act, c); if (t) ctx.toast?.(t);
+      let t; try { t = await accion(ac.dataset.act, c); } catch (er) { ctx.toast?.(er.message || "No se pudo hacer"); return; }
+      if (t) ctx.toast?.(t);
       if (c.tipo === "accion") { c.hecho = true; save(); drawMsgs(); } else { ac.disabled = true; ac.innerHTML = `${icon("check", 14)} Hecho`; }
       return;
     }
@@ -229,6 +230,35 @@ async function loadSources() {
       <div class="lbl" style="margin:18px 0 8px">Avisos oficiales</div><div class="rc">${a?.disponible === false ? row("No consultados (sin clave de AEMET)") : av.length ? av.slice(0, 3).map((x) => `<div class="src"><span><span class="pill lv${x.nivel >= 3 ? 2 : 1}"><i></i>${esc(x.color || "aviso")}</span> ${esc(x.zona || "")}</span></div>`).join("") : row("Sin avisos vigentes")}</div>`;
   } catch { if (my === srcSeq && $("#chat-src", el)) box.innerHTML = '<h2>Lo que he usado</h2><p class="empty" style="margin-top:16px">No se pudieron cargar las fuentes ahora.</p>'; }
 }
+/** Pide la respuesta en flujo (SSE): va avisando de lo que consulta y termina con la respuesta completa. Si el flujo no está disponible, usa la llamada normal. */
+async function pedir(body, paso) {
+  const login = (r) => r.status === 401 && r.headers.get("x-auth") === "login" && (location.href = "/api/auth/login?return_to=" + encodeURIComponent(location.pathname + location.hash));
+  const r = await fetch("/api/assistant/stream", { method: "POST", headers: json, body });
+  if (login(r)) return null;
+  if (!r.ok || !r.body || !(r.headers.get("content-type") || "").includes("text/event-stream")) {
+    if (r.status !== 404 && r.status !== 405 && r.status !== 200) { const e = await r.json().catch(() => ({})); throw new Error(typeof e.detail === "string" ? e.detail : `Error ${r.status}`); }
+    const r2 = await fetch("/api/assistant", { method: "POST", headers: json, body });
+    if (login(r2)) return null;
+    const d = await r2.json().catch(() => ({}));
+    if (!r2.ok) throw new Error(typeof d.detail === "string" ? d.detail : `Error ${r2.status}`);
+    return d;
+  }
+  const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "", fin = null;
+  for (;;) {
+    const { done, value } = await rd.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i; while ((i = buf.indexOf("\n\n")) >= 0) {
+      const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+      const line = raw.split("\n").find((l) => l.startsWith("data: ")); if (!line) continue;
+      let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+      if (ev.t === "herr") paso(`Consultando ${ev.items.map((x) => x.etiqueta.toLowerCase()).join(", ")}…`);
+      else if (ev.t === "fin") fin = ev;
+      else if (ev.t === "error") throw new Error(ev.detail || `Error ${ev.status}`);
+    }
+  }
+  if (!fin) throw new Error("La respuesta se cortó. Inténtalo de nuevo.");
+  return fin;
+}
 async function ask(text) {
   if (busy) return null;
   if (!cur()) newChat();
@@ -239,11 +269,10 @@ async function ask(text) {
   wait.className = "m a"; wait.innerHTML = `${AV()}<div class="mb"><span class="typing" aria-label="Pensando"><i></i><i></i><i></i></span></div>`; box.appendChild(wait); box.scrollTop = box.scrollHeight;
   const pl = place();
   try {
-    const r = await fetch("/api/assistant", { method: "POST", headers: json, body: JSON.stringify({
-      messages: c.m.filter((m) => !m.err).slice(-14).map(({ role, content }) => ({ role, content })), lat: pl?.lat, lon: pl?.lon, name: pl?.name, section: ctx.section?.(), home: ctx.home?.() ? { lat: ctx.home().lat, lon: ctx.home().lon, name: ctx.home().name } : undefined }) });
-    if (r.status === 401 && r.headers.get("x-auth") === "login") { location.href = "/api/auth/login?return_to=" + encodeURIComponent(location.pathname + location.hash); return; }
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : `Error ${r.status}`);
+    const body = JSON.stringify({
+      messages: c.m.filter((m) => !m.err).slice(-14).map(({ role, content }) => ({ role, content })), lat: pl?.lat, lon: pl?.lon, name: pl?.name, section: ctx.section?.(), home: ctx.home?.() ? { lat: ctx.home().lat, lon: ctx.home().lon, name: ctx.home().name } : undefined });
+    const d = await pedir(body, (txt) => { const mb = wait.querySelector(".mb"); if (mb) mb.innerHTML = `<span class="typing" aria-label="Pensando"><i></i><i></i><i></i></span><span class="stp" aria-live="polite">${esc(txt)}</span>`; });
+    if (!d) return;
     c.m.push({ role: "assistant", content: d.answer, model: d.model, tools: d.herramientas || [], places: d.lugares || [], cards: d.tarjetas || [] });
   } catch (e) { c.m.push({ role: "assistant", content: e.message, err: true }); }
   c.m = c.m.slice(-30); save();

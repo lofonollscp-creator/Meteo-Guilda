@@ -16,6 +16,7 @@ from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -434,6 +435,45 @@ class ChatReq(BaseModel):
 @app.post("/api/assistant")
 async def assistant(request: Request, req: ChatReq):
     """Chat con el asistente de IA (proveedor y modelo de los ajustes de la persona). Recibe el lugar que está mirando para dar datos reales."""
+    return await _asistente(request, req)
+
+
+@app.post("/api/assistant/stream")
+async def assistant_stream(request: Request, req: ChatReq):
+    """Lo mismo que /api/assistant pero en flujo (SSE): avisa de cada paso (herramientas que consulta) y termina con la respuesta completa.
+    Eventos: {t:'estado'|'herr', ...}, {t:'fin', answer, model, herramientas, lugares, tarjetas} o {t:'error', status, detail}."""
+    cola: asyncio.Queue = asyncio.Queue()
+
+    async def correr():
+        try:
+            await cola.put({"t": "fin", **(await _asistente(request, req, cola.put_nowait))})
+        except HTTPException as e:
+            await cola.put({"t": "error", "status": e.status_code, "detail": e.detail if isinstance(e.detail, str) else "Error"})
+        except Exception as e:  # noqa: BLE001
+            log.warning("asistente (flujo): %s", e)
+            await cola.put({"t": "error", "status": 500, "detail": "Error interno del asistente"})
+
+    async def flujo():
+        tarea = asyncio.create_task(correr())
+        try:
+            yield ": ok\n\n"
+            while True:
+                try:
+                    ev = await asyncio.wait_for(cola.get(), 15)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+                yield f"data: {json.dumps(ev, ensure_ascii=False, separators=(',', ':'))}\n\n"
+                if ev["t"] in ("fin", "error"):
+                    return
+        finally:
+            tarea.cancel()
+    return StreamingResponse(flujo(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "Content-Encoding": "identity"})
+
+
+async def _asistente(request: Request, req: ChatReq, aviso=None) -> dict:
+    """Cuerpo del asistente. `aviso(evento)` (opcional) recibe el progreso para el flujo."""
+    aviso = aviso or (lambda _e: None)
     s, cfg = account.config_for(request)
     if not s["ai_enabled"]:
         raise HTTPException(403, "La IA está desactivada en tus ajustes")
@@ -521,6 +561,7 @@ async def assistant(request: Request, req: ChatReq):
                         env.usados.insert(0, {"name": lug["name"], "lat": round(lug["lat"], 4), "lon": round(lug["lon"], 4)})
                 return {"answer": respuesta, "model": model, "herramientas": uso, "lugares": env.usados[:6], "tarjetas": tarjetas}
             raise HTTPException(502, "La IA no ha respondido")
+        aviso({"t": "herr", "items": [{"nombre": c["name"], "etiqueta": assistant_tools.ETIQUETAS.get(c["name"], c["name"])} for c in llamadas]})
         res = await assistant_tools.ejecutar_todas(env, llamadas)
         usadas += res
         msgs += [{"role": "assistant", "content": text}, {"role": "user", "content": assistant_tools.respuesta_para_modelo(llamadas, res, paso == assistant_tools.MAX_PASOS - 2)}]

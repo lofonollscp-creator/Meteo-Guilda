@@ -145,3 +145,7 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
   llaman a la API con `X-Admin-Token` + `X-Act-As`. Con la clave fija `MG_MCP_TOKEN` no hay identidad y esas herramientas se niegan. 45 herramientas (ver MAPA-FUNCIONES.md).
 - **iPhone en modo app**: la app empieza bajo la barra de estado/isla (`--sat`); si el sistema informa zona segura 0 pero la página llega arriba, se estima por modelo (`pantalla.js`).
   Ajustes → Cuenta → «Diagnóstico de pantalla» muestra lo que ve el dispositivo y la versión. Una versión nueva del service worker recarga la app sola.
+
+## Comprobaciones de interfaz (e2e)
+
+`./e2e/correr.sh` levanta el stack de QA (puerto 8099, base de datos desechable), pasa `ancho.mjs` (la cabecera no se solapa de 320 a 1024 px), `a11y.mjs` (nombres accesibles, tamaños táctiles, ids duplicados, ARIA, desbordes y errores de JS en 12 pantallas, el chat y el modo Live) y `offline.mjs` (la app carga sin red con la última previsión y el aviso), y lo apaga al terminar. Sale con error si algo falla. Necesita Docker; la imagen `mg-e2e` se construye sola la primera vez.

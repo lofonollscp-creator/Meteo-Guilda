@@ -1120,3 +1120,23 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .chat .dcard a.cmp-r b{color:var(--ink);text-decoration:none}
 .chat .dcard .dc-svg{overflow:hidden}
 .chat .dcard .cmp-r,.chat .dcard .sat-r{padding:8px 10px}
+.chat .m.a .mb .stp{margin-left:10px;font-size:13px;color:var(--ink-3);vertical-align:middle}
+
+/* Táctil: zonas de pulsación de al menos 40 px (44 en el chat) sin cambiar el aspecto en escritorio */
+@media (pointer:coarse){
+  .btn,.btn.sm,.btn.ghost,.chip,.seg button,.panes button,#rm button,#mel button,#vmodo button{min-height:40px}
+  .icon-btn,.go{min-width:40px;min-height:40px}
+  .chat .icon-btn{min-width:44px;min-height:44px}
+  #route-q{min-height:40px}
+}
+@media (pointer:coarse){
+  .mchip,.mapbtn{min-height:40px;display:inline-flex;align-items:center}
+  .mapbtn{padding:0 8px}
+}
+@media (pointer:coarse) and (max-width:360px){
+  #acctbtn,#theme,#install,#chatbtn{min-width:0;min-height:0}      /* la cabecera no cabe con 40 px a 320 px de ancho */
+}
+.mapbtn{min-height:24px;padding:0 6px;display:inline-flex;align-items:center}
+.mchip{min-height:30px;display:inline-flex;align-items:center}
+@media (pointer:coarse){.mchip,.mapbtn{min-height:40px}}
+@media (max-width:900px){.offline{top:auto;bottom:calc(150px + env(safe-area-inset-bottom));max-width:calc(100vw - 32px);white-space:nowrap}}   /* sobre la barra de preguntas: arriba tapaba las pestañas y el título */

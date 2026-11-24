@@ -133,3 +133,52 @@ def test_tarjetas_comparar_mar_y_satelites():
     s = at.tarjeta_satelites(p, {"pasos": [{"satelite": "ISS", "aos": "2026-11-24T20:00:00+00:00", "aos_az": 10, "max_el": 55, "duracion_s": 400, "traza": [[1, 2]]}] * 6})
     assert s["tipo"] == "satelites" and len(s["pasos"]) == 4 and "traza" not in s["pasos"][0]
     assert at.tarjeta_satelites(p, {"pasos": []}) is None
+
+
+def test_anotar_qso_es_propuesta_con_boton_y_valida_el_indicativo(cli, monkeypatch):  # noqa: F811
+    async def comp(http, cfg, system, messages, **k):
+        if len(messages) == 1:
+            return ('<tool>{"name":"anotar_qso","args":{"indicativo":"ea3xyz","banda":"2m","modo":"fm","frecuencia_mhz":"145.5","rst_enviado":"59","notas":"prueba"}}</tool>\n'
+                    '<tool>{"name":"anotar_qso","args":{"indicativo":"hola"}}</tool>')
+        return "Te lo dejo preparado."
+    monkeypatch.setattr(ai, "complete", comp)
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "anota EA3XYZ"}]}).json()
+    assert [h["ok"] for h in d["herramientas"]] == [True, False]
+    t = d["tarjetas"][0]
+    assert t["accion"] == "qso" and t["qso"]["call"] == "EA3XYZ" and t["qso"]["mode"] == "FM" and t["qso"]["freq_mhz"] == 145.5 and len(d["tarjetas"]) == 1
+
+
+async def test_avisar_paso_elige_el_proximo_paso_futuro_del_satelite(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    f = lambda m: (datetime.now(timezone.utc) + timedelta(minutes=m)).isoformat()  # noqa: E731
+    pasos = [{"satelite": "ISS (ZARYA)", "aos": f(2), "aos_az": 10, "max_el": 40, "duracion_s": 300},
+             {"satelite": "SO-50", "aos": f(60), "aos_az": 20, "max_el": 30, "duracion_s": 300},
+             {"satelite": "ISS (ZARYA)", "aos": f(120), "aos_az": 30, "max_el": 70, "duracion_s": 400}]
+
+    async def api(env, method, path, **kw):
+        return {"pasos": pasos}
+
+    async def res(env, q):
+        return {"name": "Sitges", "lat": 41.2, "lon": 1.8}
+    monkeypatch.setattr(at, "_api", api)
+    monkeypatch.setattr(at, "resolver", res)
+    env = at.Entorno(app=None, http=None, ip="", viendo=None, casa=None)
+    r = await at.ejecutar(env, "avisar_paso", {"satelite": "iss", "lugar": "Sitges"})
+    assert r["ok"] and r["tarjeta"]["accion"] == "paso" and r["tarjeta"]["paso"]["max_el"] == 70       # el de dentro de 2 min ya no da tiempo a avisar
+    r = await at.ejecutar(env, "avisar_paso", {"satelite": "NOAA", "lugar": "Sitges"})
+    assert not r["ok"]
+
+
+def test_flujo_sse_avisa_de_las_herramientas_y_termina_con_la_respuesta(cli, monkeypatch):  # noqa: F811
+    import json as _j
+
+    async def comp(http, cfg, system, messages, **k):
+        if len(messages) == 1:
+            return '<tool>{"name":"guardar_lugar","args":{"lugar":"Vielha"}}</tool>'
+        return "Listo."
+    monkeypatch.setattr(ai, "complete", comp)
+    r = cli.post("/api/assistant/stream", json={"messages": [{"role": "user", "content": "guarda Vielha"}]})
+    assert r.headers["content-type"].startswith("text/event-stream")
+    evs = [_j.loads(x[6:]) for x in r.text.split("\n\n") if x.startswith("data: ")]
+    assert [e["t"] for e in evs] == ["herr", "fin"] and evs[0]["items"][0]["nombre"] == "guardar_lugar"
+    assert evs[1]["answer"] == "Listo." and evs[1]["tarjetas"][0]["accion"] == "favorito"

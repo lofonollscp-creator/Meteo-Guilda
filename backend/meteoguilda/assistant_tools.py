@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -44,6 +45,8 @@ CATALOGO: dict[str, tuple[str, str]] = {
     "ventanas_radio": ("Ventanas para operar en radio en un lugar.", "lugar, modo (fijo|portatil)"),
     "guardar_lugar": ("Propone guardar un lugar en los favoritos de la persona (ella confirma con un botón).", "lugar"),
     "usar_como_mi_ubicacion": ("Propone fijar un lugar como «Mi ubicación» (ella confirma con un botón).", "lugar"),
+    "anotar_qso": ("Propone anotar un contacto (QSO) en el cuaderno QSL (ella confirma con un botón; no se guarda nada antes).", "indicativo, banda, modo, frecuencia_mhz, rst_enviado, rst_recibido, nombre, locator, notas"),
+    "avisar_paso": ("Propone un aviso 5 min antes del próximo paso de un satélite sobre un lugar (ella confirma; solo suena con la pestaña abierta).", "satelite (ISS, SO-50…), lugar"),
     "locator": ("Locator Maidenhead de un lugar, o coordenadas de un locator.", "lugar o locator"),
 }
 
@@ -257,6 +260,19 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             out["tarjeta"] = {"tipo": "ruta", "lugar": out["lugar"], "km": r.get("distancia_km"), "min": r.get("duracion_min"), "asc": r.get("ascenso_m"),
                               "desc": r.get("descenso_m"), "nivel": r.get("nivel_global"), "texto": r.get("nivel_texto"), "modo": r.get("modo")}
             return {**out, "ok": True, "resultado": r}
+        if nombre == "anotar_qso":
+            cs = str(a.get("indicativo") or "").strip().upper()
+            if not re.fullmatch(r"[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,3}[A-Z](/[A-Z0-9]{1,4})?", cs):
+                raise ErrorHerramienta("Falta un indicativo válido (por ejemplo EA3XYZ)")
+            q = {"call": cs, "band": a.get("banda"), "mode": (str(a["modo"]).upper() if a.get("modo") else None), "freq_mhz": a.get("frecuencia_mhz"),
+                 "rst_sent": a.get("rst_enviado"), "rst_rcvd": a.get("rst_recibido"), "name": a.get("nombre"), "grid": a.get("locator"), "notes": (str(a["notas"])[:200] if a.get("notas") else None)}
+            try:
+                q["freq_mhz"] = float(q["freq_mhz"]) if q["freq_mhz"] not in (None, "") else None
+            except (TypeError, ValueError) as e:
+                raise ErrorHerramienta("La frecuencia debe ser un número en MHz") from e
+            q = {k: (str(v)[:40] if isinstance(v, str) else v) for k, v in q.items() if v not in (None, "")}
+            out["tarjeta"] = {"tipo": "accion", "accion": "qso", "lugar": cs, "qso": q}
+            return {**out, "ok": True, "resultado": {"propuesta": q, "nota": "Se le ha mostrado un botón de confirmación; no se anota nada hasta que lo pulse. Díselo así."}}
         # resto: un solo lugar
         q = a.get("lugar") or a.get("consulta") or a.get("locator")
         if nombre == "locator" and re.fullmatch(r"[A-Ra-r]{2}\d\d([A-Xa-x]{2})?", str(q or "").strip()):
@@ -293,6 +309,16 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
         elif nombre == "satelites":
             r = await _api(env, "GET", "/api/satellites/passes", params={**c, "hours": min(max(float(a.get("horas") or 24), 1), 48)})
             out["tarjeta"] = tarjeta_satelites(p, r)
+        elif nombre == "avisar_paso":
+            r = await _api(env, "GET", "/api/satellites/passes", params={**c, "hours": 48})
+            want = str(a.get("satelite") or "").strip().lower()
+            limite = (datetime.now(timezone.utc) + timedelta(minutes=6)).isoformat()
+            pasos = [x for x in r.get("pasos") or [] if x["aos"] > limite and (not want or want in x["satelite"].lower())]
+            if not pasos:
+                raise ErrorHerramienta("No hay pasos próximos de ese satélite sobre ese lugar")
+            x = pasos[0]
+            out["tarjeta"] = {"tipo": "accion", "accion": "paso", "lugar": p["name"], "paso": {k: x.get(k) for k in ("satelite", "aos", "aos_az", "max_el", "duracion_s")}}
+            r = {"propuesta": out["tarjeta"]["paso"], "nota": "Se le ha mostrado un botón de confirmación; el aviso solo suena con la pestaña abierta. Díselo así."}
         elif nombre == "astro":
             r = await _api(env, "GET", "/api/astro", params=c)
         elif nombre == "portatil":
@@ -332,7 +358,7 @@ ETIQUETAS = {"buscar_lugar": "Búsqueda de lugar", "prevision": "Previsión de m
              "mar": "Estado del mar", "comparar": "Comparación", "actividad": "Ventanas de actividad", "ruta": "Ruta con meteo",
              "observaciones": "Estaciones cercanas", "propagacion": "Propagación VHF", "condiciones_hf": "Condiciones HF", "repetidores": "Repetidores",
              "satelites": "Pasos de satélite", "astro": "Sol y luna", "portatil": "Operación portátil", "ventanas_radio": "Ventanas de radio",
-             "locator": "Locator", "guardar_lugar": "Guardar lugar", "usar_como_mi_ubicacion": "Mi ubicación"}
+             "locator": "Locator", "anotar_qso": "Anotar contacto", "avisar_paso": "Aviso de paso", "guardar_lugar": "Guardar lugar", "usar_como_mi_ubicacion": "Mi ubicación"}
 
 
 def resumen_uso(res: list[dict]) -> list[dict]:
