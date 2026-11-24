@@ -27,7 +27,7 @@ export function startLive({ root, ask, onClose }) {
     <div class="live-c"><button type="button" class="orb" aria-label="Hablar o interrumpir"><i></i><i></i><i></i></button>
     <p class="live-st" aria-live="polite"></p><p class="live-cap" aria-live="polite"></p></div>
     <div class="live-ctl"><button type="button" class="rb" id="live-mute" aria-pressed="false" aria-label="Silenciar micrófono">${icon("mic")}</button>
-      <button type="button" class="rb" id="live-kb" aria-label="Volver al teclado">${icon("edit")}</button>
+      <button type="button" class="rb" id="live-kb" aria-label="Volver al teclado">${icon("keyboard")}</button>
       <button type="button" class="end" id="live-end">Terminar</button></div>
     <p class="live-note">El reconocimiento de voz lo hace tu navegador y puede enviar el audio a su proveedor. Di «para» o toca Terminar.</p>`;
   root.appendChild(box);
@@ -70,7 +70,7 @@ export function startLive({ root, ask, onClose }) {
       if (!text) { if (++quiet < 4) return listen(); return set("paused"); }          // silencio: reintenta y, tras 4 veces, pausa
       quiet = 0;
       if (STOP.test(text)) return close();
-      set("thinking"); cap.textContent = text;
+      set("thinking", "Pensando…"); cap.textContent = text;
       const answer = await Promise.race([ask(text), new Promise((ok) => setTimeout(() => ok(undefined), ESPERA_MAX))]);
       if (dead || my !== gen) return;
       if (answer === undefined) return say("El asistente tarda demasiado en responder. Inténtalo de nuevo en un momento.");
