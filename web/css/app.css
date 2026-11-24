@@ -1096,3 +1096,9 @@ dialog#dlg .qsl-acts .btn:focus-visible{outline-offset:2px}
 dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .acct .sw span small{font-size:12.5px;line-height:1.45}
 .acct .sw input{accent-color:var(--ai)}
+
+/* Historial: pie con ubicación y modelo (canvas Main) */
+.chat-hist .hist-st{display:flex;flex-direction:column;gap:9px;padding:14px 22px 18px;font-size:13px;color:var(--ink-2)}
+.chat-hist .hist-st span{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chat-hist .hist-st .dot{width:7px;height:7px;border-radius:50%;background:#1f8a5b;flex:none}
+.chat-hist .hist-st small{font-size:12px;color:var(--ink-3);margin-top:2px}

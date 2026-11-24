@@ -39,6 +39,7 @@ const HOLD = { home: "Pregunta sobre el tiempo, una ruta o la radio…", forecas
 const MODELS = { ecmwf_ifs025: "ECMWF IFS", ecmwf_aifs025_single: "ECMWF AIFS", icon_seamless: "DWD ICON", gfs_seamless: "NOAA GFS", meteofrance_seamless: "Météo-France", gem_seamless: "ECCC GEM", ukmo_seamless: "UK Met Office", knmi_seamless: "KNMI", dmi_seamless: "DMI", metno_seamless: "MET Noruega", meteoswiss_icon_seamless: "MeteoSwiss", italia_meteo_arpae_icon_2i: "ARPAE (Italia)", jma_seamless: "JMA" };
 
 const place = () => ctx.place?.() || null;
+const qthTxt = () => { const q = LS.get("mg-qth", null); return q ? [q.name, q.locator].filter(Boolean).join(" · ") || "Mi ubicación" : "Sin ubicación guardada"; };
 function where() {   // «dónde estoy» en la app: sección + subsección para elegir sugerencias y textos
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean), s = ["forecast", "routes", "radio", "learn"].includes(p[0]) ? p[0] : "forecast";
   if (s === "forecast") return p[1] === "comparar" ? "comparar" : place() ? "forecast" : "home";
@@ -125,7 +126,7 @@ function paint() {
   el.innerHTML = `
     <div class="chat-hist" aria-label="Conversaciones"><div class="hist-head"><strong>Conversaciones</strong></div>
       <div style="padding:0 14px 8px"><button class="btn ai" id="chat-new2" type="button" style="width:100%">${icon("plus", 16)} Nueva conversación</button></div>
-      <div class="hist-list" id="hist"></div><p class="hist-note">Se guardan en este dispositivo.</p></div>
+      <div class="hist-list" id="hist"></div><div class="hist-st"><span>${icon("pin", 15)} ${esc(qthTxt())}</span><span><i class="dot"></i> ${prov && prov !== "server" ? esc((me.data.model || prov).split("/").pop()) : "Modelo gratuito activo"}</span><small>Se guardan en este dispositivo.</small></div></div>
     <div class="chat-main">
       <header><span class="chat-av" aria-hidden="true">${icon("spark", 18)}</span><div class="chat-t"><h2>Guilda</h2><p>Asistente · ${prov && prov !== "server" ? esc((me.data.model || prov).split("/").pop()) : "modelo gratuito"}</p></div>
         <button class="icon-btn" id="chat-new" type="button" aria-label="Nueva conversación" title="Nueva conversación">${icon("plus")}</button>
