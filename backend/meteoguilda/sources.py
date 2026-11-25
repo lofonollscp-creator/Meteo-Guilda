@@ -101,13 +101,16 @@ async def xema_near(http: httpx.AsyncClient, lat: float, lon: float, km: float =
         codes = ",".join(f"'{s['codi']}'" for _, s in near)
         since = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S")
         r = await http.get(f"{XEMA}/nzvn-apee.json", params={
-            "$where": f"codi_estacio in ({codes}) AND codi_variable in ('30','31','32','33','34','50') AND data_lectura > '{since}'",
-            "$order": "data_lectura DESC", "$limit": 400, "$select": "codi_estacio,codi_variable,data_lectura,valor_lectura"},
+            "$where": f"codi_estacio in ({codes}) AND codi_variable in ('30','31','32','33','34','35','50') AND data_lectura > '{since}'",
+            "$order": "data_lectura DESC", "$limit": 800, "$select": "codi_estacio,codi_variable,data_lectura,valor_lectura"},
             headers=UA, timeout=12)
         r.raise_for_status()
         last: dict[tuple[str, str], tuple[str, float]] = {}
+        lluvia: dict[str, list[tuple[str, float]]] = {}      # lecturas de 30 min de precipitación, de la más reciente a la más antigua
         for x in r.json():
             k = (x["codi_estacio"], x["codi_variable"])
+            if x["codi_variable"] == "35":
+                lluvia.setdefault(x["codi_estacio"], []).append((x["data_lectura"], float(x["valor_lectura"])))
             if k not in last:
                 last[k] = (x["data_lectura"], float(x["valor_lectura"]))
     except Exception as e:  # noqa: BLE001
@@ -116,13 +119,17 @@ async def xema_near(http: httpx.AsyncClient, lat: float, lon: float, km: float =
     out = []
     for dist, s in near:
         g = lambda v: last.get((s["codi"], v), (None, None))  # noqa: E731
-        t, vv, rf, hr, pr = g("32"), g("30"), g("50"), g("33"), g("34")
+        t, vv, rf, hr, pr, dv = g("32"), g("30"), g("50"), g("33"), g("34"), g("31")
         if t[1] is None:
             continue
+        ll = lluvia.get(s["codi"], [])
+        mm = None                                            # litros/m² en la última hora (dos lecturas de 30 min); solo si la estación midió lluvia reciente
+        if ll and ll[0][0][:13] >= t[0][:13]:
+            mm = round(sum(v for d, v in ll[:2] if d >= (datetime.fromisoformat(ll[0][0]) - timedelta(minutes=45)).isoformat()), 1)
         out.append({"id": s["codi"], "nombre": s["nom"], "lat": s["lat"], "lon": s["lon"], "dist_km": round(dist), "fuente": "XEMA",
                     "temp_c": t[1], "viento_kmh": round(vv[1] * 3.6) if vv[1] is not None else None,
                     "racha_kmh": round(rf[1] * 3.6) if rf[1] is not None else None, "humedad_pct": round(hr[1]) if hr[1] is not None else None,
-                    "presion_hpa": pr[1], "hora": t[0][:19] + "Z"})
+                    "presion_hpa": pr[1], "dir_viento_deg": round(dv[1]) if dv[1] is not None else None, "lluvia_1h_mm": mm, "hora": t[0][:19] + "Z"})
     out = out[:n]
     _cache[key] = (time.time(), out)
     if len(_cache) > 300:

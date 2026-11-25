@@ -124,7 +124,7 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 
 ## 13. Modelos y fuentes de datos
 - **8 modelos** en la previsión puntual: ECMWF IFS y AIFS (IA), DWD ICON, NOAA GFS, Météo-France (AROME/ARPEGE), ECCC GEM, UK Met Office y KNMI HARMONIE. Rutas y portátil usan los 4 primeros (decenas de puntos por petición). La web los contrasta en «Contraste de modelos» (una línea por modelo, discrepancia media) y el MCP los devuelve en `por_modelo`.
-- **Observaciones reales** (campo `fuente`): balizas **APRS** (control de calidad propio), **METAR** de aeropuertos (aviationweather.gov, todo el mundo) y estaciones **XEMA** del Meteocat (datos abiertos de Transparència Catalunya; solo se consulta en Cataluña). Sin claves; caché de 10 min; si una fuente falla se ignora.
+- **Observaciones reales** (campo `fuente`): balizas **APRS** (control de calidad propio), **METAR** de aeropuertos (aviationweather.gov, todo el mundo) y estaciones **XEMA** del Meteocat (datos abiertos de Transparència Catalunya; solo se consulta en Cataluña; incluyen lluvia de la última hora y dirección del viento). Sin claves; caché de 10 min; si una fuente falla se ignora.
 - **Cuota de Open-Meteo**: cobra por modelo (8 modelos ≈ coste 8,8 por consulta; límite gratuito 600/min y 10 000/día por IP). Por eso: caché de 2 h, recarga manual (botón ↻) con enfriamiento de 5 min, datos antiguos si la fuente devuelve 429 y refresco horario solo de los 6 lugares principales. Si el tráfico crece: instancia propia o clave comercial de Open-Meteo.
 - **Pendiente de claves** (gratuitas pero con registro por correo): **AEMET OpenData** y **API del Meteocat** (predicción oficial) y **Météo-France** (portal API). Se pueden añadir como una fuente más cuando haya clave.
 

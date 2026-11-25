@@ -74,7 +74,7 @@ async def test_metar_y_xema():
         if req.url.path.endswith("yqwd-vj5e.json"):
             return httpx.Response(200, json=[{"codi_estacio": "X1", "nom_estacio": "Lleida", "latitud": "41.63", "longitud": "0.60"}])
         rows = [{"codi_estacio": "X1", "codi_variable": v, "data_lectura": "2026-11-22T23:30:00.000", "valor_lectura": val}
-                for v, val in [("32", "10.2"), ("30", "2.5"), ("50", "5"), ("33", "81"), ("34", "990.1")]]
+                for v, val in [("32", "10.2"), ("30", "2.5"), ("50", "5"), ("33", "81"), ("34", "990.1"), ("31", "270")]] + [{"codi_estacio": "X1", "codi_variable": "35", "data_lectura": d, "valor_lectura": v} for d, v in [("2026-11-22T23:30:00.000", "0.4"), ("2026-11-22T23:00:00.000", "0.6"), ("2026-11-22T22:30:00.000", "5")]]
         return httpx.Response(200, json=rows)
 
     sources._cache.clear(); sources._xema_meta = (0, [])
@@ -84,7 +84,7 @@ async def test_metar_y_xema():
     assert por["METAR"]["viento_kmh"] == round(12 * 1.852) and por["METAR"]["racha_kmh"] == round(20 * 1.852)
     assert por["METAR"]["id"] == "LEDA" and por["METAR"]["nombre"].startswith("Lleida")
     x = por["XEMA"]
-    assert x["temp_c"] == 10.2 and x["viento_kmh"] == 9 and x["racha_kmh"] == 18 and x["humedad_pct"] == 81 and x["presion_hpa"] == 990.1 and x["hora"].endswith("Z")
+    assert x["temp_c"] == 10.2 and x["viento_kmh"] == 9 and x["racha_kmh"] == 18 and x["humedad_pct"] == 81 and x["presion_hpa"] == 990.1 and x["dir_viento_deg"] == 270 and x["lluvia_1h_mm"] == 1.0 and x["hora"].endswith("Z")
     assert [o["dist_km"] for o in r] == sorted(o["dist_km"] for o in r)
 
 
