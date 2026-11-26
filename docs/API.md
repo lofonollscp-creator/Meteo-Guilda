@@ -37,6 +37,7 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/satellites` · `GET /api/satellites/passes?lat=&lon=&hours=&min_el=&sats=` | Satélites y sus pasos |
 | `GET /api/portable?lat=&lon=` | Mejores ventanas para operar en portátil |
 | `GET /api/avisos?lat=&lon=` | Avisos oficiales vigentes (AEMET) del punto + enlaces; requiere `AEMET_API_KEY` para los avisos |
+| `GET /api/precision?lat=&lon=&dias=` | Qué modelo acierta más la temperatura a 24 h en el lugar principal más cercano (≤ 60 km), frente a estaciones XEMA/METAR; vacío hasta reunir ≥ 8 comparaciones por modelo |
 | `GET /api/oficial?lat=&lon=` | Predicción oficial a 8 días del Meteocat (solo Cataluña; requiere `METEOCAT_API_KEY`; plan de 100 consultas/mes: caché 18 h y topes propios de 90/mes y 5/día) |
 | `GET /api/radio/ventanas?lat=&lon=&modo=fijo\|portatil` | Tramos de 3 h (48 h) con nota de HF, tropo, satélites y campo |
 | `GET /api/locator?lat=&lon=` o `?loc=` | Maidenhead ↔ coordenadas |

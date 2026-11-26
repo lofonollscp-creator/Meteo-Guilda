@@ -349,7 +349,7 @@ function render(d) {
   <section class="sec"><div class="label">Contraste de modelos <em>¿coinciden?</em>
       <span class="seg" role="group" aria-label="Variable">${[["temp_c", "Temp"], ["lluvia_mm", "Lluvia"], ["viento_kmh", "Viento"], ["racha_kmh", "Racha"], ["nubes_pct", "Nubes"]]
         .filter(([k]) => c.por_modelo?.[k]).map(([k, l]) => `<button type="button" data-mv="${k}" aria-pressed="${mvar === k}">${l}</button>`).join("")}</span></div>
-    <p class="empty" id="mnote"></p><div class="mchips" id="mchips"></div><div id="mchart" class="chart"></div></section>
+    <p class="empty" id="mnote"></p><div class="mchips" id="mchips"></div><div id="mchart" class="chart"></div><div id="precision" class="prec" hidden></div></section>
 
   <section class="sec"><div class="label">Viento y cielo</div><div class="grid2">
     <div class="card rosebox"><h3>${icon("compass", 16)} Rosa de los vientos <span class="sub">próximos 5 días</span></h3><div id="rose"></div><p class="empty" style="font-size:12px;margin-top:6px">Cada pétalo: de dónde sopla y cuánto tiempo; color = velocidad media.</p></div>
@@ -382,6 +382,7 @@ function render(d) {
   drawModels(c);
   loadAvisos(la, lo, req);
   loadOficial(la, lo, req, c.dias);
+  loadPrecision(la, lo, req);
   lazyLoad("#act-sec", () => loadActivities(la, lo));
   lazyLoad("#air-sec", () => loadAir(la, lo));
   loadMar(la, lo);
@@ -479,6 +480,17 @@ async function loadOficial(la, lo, my, dias) {
   box.innerHTML = `<div class="label">Predicción oficial · Meteocat <em>${esc(r.municipio)}${r.antiguo ? " · dato de hace más de un día" : ""}</em></div>
     <div class="tablewrap"><table><thead><tr><th>Día</th><th>Cielo</th><th>Mín/máx</th><th>Modelos</th><th>Lluvia</th></tr></thead><tbody>${r.dias.slice(0, 7).map(fila).join("")}</tbody></table></div>
     <p class="aviso-links">Predicción municipal del Servei Meteorològic de Catalunya · <a href="${esc(r.enlace)}" target="_blank" rel="noopener">ver en meteo.cat</a>. «Lluvia» es la probabilidad; entre paréntesis, la diferencia del Meteocat con la media de los modelos.</p>`;
+}
+/* ¿Qué modelo ha acertado más la temperatura en esta zona? (últimos 30 días, a 24 h vista, frente a estaciones oficiales; solo con datos suficientes) */
+async function loadPrecision(la, lo, my) {
+  const box = $("#precision"); if (!box) return;
+  let r; try { r = await api(`/api/precision?lat=${la}&lon=${lo}`); } catch { return; }
+  if (my !== req || !$("#precision") || !r?.disponible || !r.modelos?.length) return;
+  const top = r.modelos.slice(0, 3), peor = r.modelos.length > 3 ? r.modelos[r.modelos.length - 1] : null;
+  box.hidden = false;
+  box.innerHTML = `<b>Quién acierta más en ${esc(r.lugar)}</b> <small>(temperatura a 24 h, últimos ${r.dias} días)</small>
+    <ol>${top.map((m) => `<li><span>${esc(m.etiqueta)}</span><span class="num">±${nf1.format(m.mae_c)}°</span></li>`).join("")}</ol>
+    ${peor ? `<small>El menos acertado: ${esc(peor.etiqueta)} (±${nf1.format(peor.mae_c)}°).</small>` : ""}`;
 }
 async function loadAvisos(la, lo, my) {
   const box = $("#avisos"); if (!box) return;

@@ -1143,3 +1143,9 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 
 /* predicción oficial del Meteocat */
 #oficial td.num,#oficial th{white-space:nowrap}
+
+/* quién acierta más (verificación de modelos) */
+.prec{margin-top:14px;padding:12px 14px;border:1px solid var(--line-2);border-radius:12px;font-size:13px}
+.prec ol{list-style:none;margin:8px 0 6px;padding:0;display:grid;gap:4px}
+.prec li{display:flex;justify-content:space-between;gap:12px}
+.prec small{color:var(--ink-3)}

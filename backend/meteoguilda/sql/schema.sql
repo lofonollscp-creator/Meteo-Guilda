@@ -106,3 +106,13 @@ CREATE TABLE IF NOT EXISTS user_settings (
   keys       JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Verificación de los modelos: temperatura prevista por cada modelo a 12 y 24 h vista en los lugares principales y lo que midieron después las
+-- estaciones oficiales cercanas (XEMA/METAR). Sirve para ver qué modelo acierta más en cada zona (ver verif.py).
+CREATE TABLE IF NOT EXISTS verif_pred (
+  lugar TEXT NOT NULL, modelo TEXT NOT NULL, lead_h SMALLINT NOT NULL, valida TIMESTAMPTZ NOT NULL,
+  emitida TIMESTAMPTZ NOT NULL DEFAULT now(), pred_c REAL NOT NULL,
+  obs_c REAL, n_est SMALLINT, verificada TIMESTAMPTZ,
+  PRIMARY KEY (lugar, modelo, lead_h, valida)
+);
+CREATE INDEX IF NOT EXISTS verif_pred_valida ON verif_pred (valida DESC);

@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import meteocat
+from . import verif
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -65,7 +66,10 @@ async def get_summary(http: httpx.AsyncClient, lat: float, lon: float, force: bo
         if hit and not force and time.time() - hit[0] < SUMMARY_TTL:
             return hit[1]
         try:
-            summary = openmeteo.summarize(await openmeteo.fetch(lat, lon, client=http))
+            raw = await openmeteo.fetch(lat, lon, client=http)
+            summary = openmeteo.summarize(raw)
+            if (slug := verif.lugar_de(lat, lon)):                  # lugares principales: guarda lo previsto para verificarlo luego (ver verif.py)
+                await asyncio.to_thread(verif.registrar, raw, slug)
         except httpx.HTTPError:
             if hit:   # la fuente limita o falla: mejor datos de hace unas horas que un error
                 log.warning("Open-Meteo no responde; se usan datos guardados de %s", k)
@@ -157,6 +161,7 @@ async def pregen_loop(http: httpx.AsyncClient):
             except Exception as e:  # noqa: BLE001
                 log.warning("pregen %s: %s", p.slug, e)
             await asyncio.sleep(20)
+        await verif.verificar(http)
         await asyncio.sleep(SUMMARY_TTL - 20 * len(PLACES))
 
 
@@ -293,6 +298,18 @@ async def avisos(request: Request, lat: float = Query(ge=-90, le=90), lon: float
     """Avisos oficiales vigentes (AEMET/Meteoalerta) que afectan al punto, más los enlaces oficiales. Sin clave de AEMET solo salen los enlaces."""
     limit(request, "point")
     return avisos_mod.para_punto(await avisos_mod.todos(H(request)), lat, lon)
+
+
+@app.get("/api/precision")
+async def precision(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), dias: int = Query(30, ge=7, le=90)):
+    """Qué modelo ha acertado más la temperatura (a 24 h vista) en el lugar principal más cercano (≤ 60 km), según las estaciones oficiales."""
+    limit(request, "point")
+    cerca = min(PLACES, key=lambda p: sources.haversine(lat, lon, p.lat, p.lon))
+    if sources.haversine(lat, lon, cerca.lat, cerca.lon) > 60:
+        return {"disponible": False, "motivo": "sin_lugar_cercano"}
+    modelos = await asyncio.to_thread(verif.precision, cerca.slug, dias)
+    return {"disponible": bool(modelos), "lugar": cerca.name, "dias": dias, "lead_h": 24, "minimo_n": verif.MIN_N, "modelos": modelos,
+            "nota": "Error medio de la temperatura prevista a 24 h frente a la medida por estaciones oficiales (XEMA/METAR) a ≤ 25 km."}
 
 
 @app.get("/api/oficial")
