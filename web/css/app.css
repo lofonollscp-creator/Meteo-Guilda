@@ -1149,3 +1149,8 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .prec ol{list-style:none;margin:8px 0 6px;padding:0;display:grid;gap:4px}
 .prec li{display:flex;justify-content:space-between;gap:12px}
 .prec small{color:var(--ink-3)}
+
+/* memoria del asistente y avisos */
+.memlist{list-style:none;margin:2px 0 10px;padding:0;display:grid;gap:6px}
+.memlist li{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px}
+.acct .row input[type=text]{flex:1;min-width:0}

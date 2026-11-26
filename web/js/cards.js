@@ -1,5 +1,5 @@
 // Tarjetas de datos del asistente: previsión (con gráfico por pestañas y cursor), ruta, contraste con estaciones y acciones (guardar lugar, Mi ubicación).
-import { esc, LS, toLocator } from "./util.js";
+import { api, esc, LS, toLocator } from "./util.js";
 import { icon } from "./icons.js";
 import { setQth } from "./qth.js";
 import { pushSettings } from "./sync.js";
@@ -75,6 +75,7 @@ export function dataCard(c, m, k) {
       ubicacion: ["Usar como Mi ubicación", `¿Pongo <b>${esc(short(c.lugar))}</b> como tu ubicación? El asistente y la previsión la usarán para «aquí».`, "Usar como Mi ubicación", "Ubicación actualizada"],
       qso: ["Anotar en el cuaderno QSL", qsoTxt(c.qso), "Anotar", "Anotado en tu cuaderno"],
       paso: ["Aviso de paso", pasoTxt(c.paso, c.lugar), "Avisarme", "Aviso programado"],
+      memoria: ["Recordar preferencia", `¿Quieres que recuerde esto para futuras respuestas? <b>«${esc(c.memoria?.texto || c.lugar)}»</b> <small>Puedes verlo y borrarlo en Ajustes → Memoria.</small>`, "Recordar", "Anotado en tu memoria"],
     }[c.accion] || ["Acción", "", "Hacer", "Hecho"];
     return `<div class="dcard act" ${at}><div class="dc-h"><span>${T[0]}</span></div>
       <p class="dc-q">${T[1]}</p>
@@ -111,6 +112,7 @@ export async function accion(tipo, c) {
     return `Contacto con ${q.call} anotado`;
   }
   if (tipo === "paso") return programarPaso(c.paso);
+  if (tipo === "memoria") { await api("/api/me/memoria/notas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(c.memoria) }); return "Anotado en tu memoria"; }
   const lat = +(+c.lat).toFixed(4), lon = +(+c.lon).toFixed(4), name = short(c.lugar);
   if (tipo === "favorito") {
     const ev = new CustomEvent("mg:fav", { detail: { name, sub: (c.lugar.match(/\((.*)\)/) || [])[1] || "", lat, lon } });

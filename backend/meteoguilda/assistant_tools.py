@@ -46,7 +46,8 @@ CATALOGO: dict[str, tuple[str, str]] = {
     "guardar_lugar": ("Propone guardar un lugar en los favoritos de la persona (ella confirma con un botón).", "lugar"),
     "usar_como_mi_ubicacion": ("Propone fijar un lugar como «Mi ubicación» (ella confirma con un botón).", "lugar"),
     "anotar_qso": ("Propone anotar un contacto (QSO) en el cuaderno QSL (ella confirma con un botón; no se guarda nada antes).", "indicativo, banda, modo, frecuencia_mhz, rst_enviado, rst_recibido, nombre, locator, notas"),
-    "avisar_paso": ("Propone un aviso 5 min antes del próximo paso de un satélite sobre un lugar (ella confirma; solo suena con la pestaña abierta).", "satelite (ISS, SO-50…), lugar"),
+    "avisar_paso": ("Propone un aviso 5 min antes del próximo paso de un satélite sobre un lugar (ella confirma; suena aunque cierre la pestaña si tiene las notificaciones activadas).", "satelite (ISS, SO-50…), lugar"),
+    "recordar": ("Propone recordar una preferencia de la persona para futuras respuestas (ella confirma con un botón). SOLO si ella lo pide («recuerda que…») y nunca datos personales, de salud o creencias.", "texto (≤140 caracteres), categoria (actividad, lugar, radio, unidades, estilo, otro)"),
     "locator": ("Locator Maidenhead de un lugar, o coordenadas de un locator.", "lugar o locator"),
 }
 
@@ -111,6 +112,7 @@ class Entorno:
     ip: str = ""
     viendo: dict | None = None        # {lat, lon, name}
     casa: dict | None = None          # «Mi ubicación»
+    memoria: bool = False             # la persona ha activado la memoria de preferencias (opt-in, ver memoria.py)
     usados: list[dict] = field(default_factory=list)   # lugares resueltos, para enlazarlos en la web
 
 
@@ -273,6 +275,17 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             q = {k: (str(v)[:40] if isinstance(v, str) else v) for k, v in q.items() if v not in (None, "")}
             out["tarjeta"] = {"tipo": "accion", "accion": "qso", "lugar": cs, "qso": q}
             return {**out, "ok": True, "resultado": {"propuesta": q, "nota": "Se le ha mostrado un botón de confirmación; no se anota nada hasta que lo pulse. Díselo así."}}
+        if nombre == "recordar":
+            from fastapi import HTTPException
+            from . import memoria
+            if not env.memoria:
+                raise ErrorHerramienta("La memoria de preferencias está desactivada: la persona puede activarla en Ajustes → Privacidad y memoria")
+            try:
+                texto, cat = memoria.validar(str(a.get("texto") or ""), str(a.get("categoria") or "otro"))
+            except HTTPException as e:
+                raise ErrorHerramienta(str(e.detail)) from e
+            out["tarjeta"] = {"tipo": "accion", "accion": "memoria", "lugar": texto, "memoria": {"texto": texto, "cat": cat}}
+            return {**out, "ok": True, "resultado": {"propuesta": texto, "nota": "Se le ha mostrado un botón «Recordar»; no se guarda nada hasta que lo pulse. Díselo así."}}
         # resto: un solo lugar
         q = a.get("lugar") or a.get("consulta") or a.get("locator")
         if nombre == "locator" and re.fullmatch(r"[A-Ra-r]{2}\d\d([A-Xa-x]{2})?", str(q or "").strip()):
@@ -358,7 +371,7 @@ ETIQUETAS = {"buscar_lugar": "Búsqueda de lugar", "prevision": "Previsión de m
              "mar": "Estado del mar", "comparar": "Comparación", "actividad": "Ventanas de actividad", "ruta": "Ruta con meteo",
              "observaciones": "Estaciones cercanas", "propagacion": "Propagación VHF", "condiciones_hf": "Condiciones HF", "repetidores": "Repetidores",
              "satelites": "Pasos de satélite", "astro": "Sol y luna", "portatil": "Operación portátil", "ventanas_radio": "Ventanas de radio",
-             "locator": "Locator", "anotar_qso": "Anotar contacto", "avisar_paso": "Aviso de paso", "guardar_lugar": "Guardar lugar", "usar_como_mi_ubicacion": "Mi ubicación"}
+             "locator": "Locator", "anotar_qso": "Anotar contacto", "avisar_paso": "Aviso de paso", "recordar": "Recordar preferencia", "guardar_lugar": "Guardar lugar", "usar_como_mi_ubicacion": "Mi ubicación"}
 
 
 def resumen_uso(res: list[dict]) -> list[dict]:

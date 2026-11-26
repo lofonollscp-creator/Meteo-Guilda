@@ -1,5 +1,7 @@
-// Aviso de un paso de satélite programado desde el asistente. Sin servidor de notificaciones: solo suena con esta pestaña abierta.
+// Aviso de un paso de satélite programado desde el asistente. Con las notificaciones activadas (Ajustes → Avisos) lo envía el servidor y suena aunque cierres
+// la pestaña; sin ellas, un temporizador local que solo suena con esta pestaña abierta.
 import { compass } from "./util.js";
+import { recordarPaso } from "./push.js";
 
 const timers = new Map();
 
@@ -7,6 +9,7 @@ const timers = new Map();
 export async function programarPaso(p) {
   const ms = new Date(p.aos).getTime() - Date.now() - 5 * 60000;
   if (!(ms > -4 * 60000)) throw new Error("Ese paso ya ha empezado o está a punto");
+  if (await recordarPaso(p)) return `Te aviso 5 min antes del paso de ${p.satelite} · te llegará una notificación aunque cierres la pestaña`;
   if ("Notification" in window && Notification.permission === "default") { try { await Notification.requestPermission(); } catch { /* sin permiso: aviso en pantalla */ } }
   if (timers.has(p.aos)) clearTimeout(timers.get(p.aos));
   timers.set(p.aos, setTimeout(() => {

@@ -1,7 +1,7 @@
 // Service worker de Guilda: shell offline + datos de API con red primero y copia de respaldo.
-const V = "guilda-v43";
+const V = "guilda-v44";
 const SHELL = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/util.js", "/js/icons.js", "/js/charts.js", "/js/forecast.js", "/js/routes.js", "/js/radio.js", "/js/learn.js",
-  "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/js/cards.js", "/js/voice.js", "/js/recordatorio.js", "/js/qth.js", "/js/md.js", "/js/pantalla.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
+  "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/js/cards.js", "/js/voice.js", "/js/recordatorio.js", "/js/push.js", "/js/qth.js", "/js/md.js", "/js/pantalla.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
   "/fonts/ibm-plex-sans-latin-400-normal.woff2", "/fonts/ibm-plex-sans-latin-500-normal.woff2", "/fonts/ibm-plex-sans-latin-600-normal.woff2",
   "/fonts/ibm-plex-mono-latin-400-normal.woff2", "/fonts/ibm-plex-mono-latin-500-normal.woff2", "/fonts/newsreader-latin-500-normal.woff2", "/fonts/newsreader-latin-600-normal.woff2"];
 const API_CACHEABLE = /^\/api\/(places|forecast$|raw|astro|portable|propagation|solar|repeaters|satellites|snapshot|observations)/;
@@ -39,3 +39,17 @@ async function staleWhileRevalidate(req) {
   const net = fetch(req).then((r) => { if (r.ok) cache.put(req, r.clone()); return r; }).catch(() => null);
   return hit || (await net) || cache.match("/index.html");
 }
+
+// Notificaciones push (ver js/push.js y backend/meteoguilda/push.py): el servidor envía {titulo, cuerpo, url, tag}
+self.addEventListener("push", (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { titulo: "Guilda", cuerpo: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(d.titulo || "Guilda", { body: d.cuerpo || "", tag: d.tag || "mg", icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: d.url || "/" } }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || "/", self.location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((ws) => {
+    const w = ws.find((x) => x.url.startsWith(self.location.origin));
+    return w ? (w.navigate(url).then((c) => (c || w).focus())) : self.clients.openWindow(url);
+  }));
+});

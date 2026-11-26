@@ -24,6 +24,7 @@ from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
+from . import push, memoria
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -187,6 +188,7 @@ async def lifespan(app: FastAPI):
     tasks = []
     if os.environ.get("MG_PREGEN") == "1":
         tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
+        tasks.append(asyncio.create_task(push.bucle(app.state.http)))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
     if os.environ.get("MG_REPEATERS_SYNC") == "1":
         tasks.append(asyncio.create_task(repeaters_loop(app.state.http)))
     yield
@@ -202,6 +204,8 @@ H = lambda r: r.app.state.http  # noqa: E731
 app.include_router(oauth.router)
 app.include_router(auth.router)
 app.include_router(account.router)
+app.include_router(push.router)
+app.include_router(memoria.router)
 
 
 @app.get("/api/cuota")
@@ -508,6 +512,8 @@ async def _asistente(request: Request, req: ChatReq, aviso=None) -> dict:
     http = H(request)
     system = ASSISTANT_SYSTEM + f"\nHoy es {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
     home = req.home.model_dump() if req.home else s.get("home")
+    sub_usuario = account.current(request)["sub"]
+    system += memoria.contexto(sub_usuario)               # preferencias que la persona pidió recordar (opt-in; vacío si la memoria está apagada)
     ctx_datos: dict[str, dict] = {}       # datos ya cargados del lugar que se mira y de «Mi ubicación» (para la tarjeta)
 
     async def block(title: str, lat: float, lon: float) -> str:
@@ -562,7 +568,8 @@ async def _asistente(request: Request, req: ChatReq, aviso=None) -> dict:
         app=request.app, http=http,
         ip=(request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip(),
         viendo={"name": req.name or "punto", "lat": req.lat, "lon": req.lon} if req.lat is not None and req.lon is not None else None,
-        casa={"name": home.get("name") or "Mi ubicación", "lat": home["lat"], "lon": home["lon"]} if home else None)
+        casa={"name": home.get("name") or "Mi ubicación", "lat": home["lat"], "lon": home["lon"]} if home else None,
+        memoria=bool((s.get("memoria") or {}).get("activa")))
     usadas: list[dict] = []
     pregunta = req.messages[-1].content            # la última pregunta de la persona (msgs crece con los resultados de herramientas)
     system += assistant_tools.catalogo_texto()

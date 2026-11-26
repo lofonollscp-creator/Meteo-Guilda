@@ -116,3 +116,18 @@ CREATE TABLE IF NOT EXISTS verif_pred (
   PRIMARY KEY (lugar, modelo, lead_h, valida)
 );
 CREATE INDEX IF NOT EXISTS verif_pred_valida ON verif_pred (valida DESC);
+
+-- Notificaciones push (Web Push): un dispositivo suscrito por fila. El «endpoint» identifica el navegador ante su servicio de push y se trata como dato
+-- personal: se borra al desactivar, al borrar la cuenta o tras 90 días sin entregas (ver push.py). La ubicación se redondea a ~1 km.
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint TEXT PRIMARY KEY, sub TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+  lat REAL, lon REAL, nombre TEXT, avisos BOOLEAN NOT NULL DEFAULT TRUE, nivel_min SMALLINT NOT NULL DEFAULT 2, pasos BOOLEAN NOT NULL DEFAULT TRUE,
+  creada TIMESTAMPTZ NOT NULL DEFAULT now(), ultimo_ok TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subs_sub ON push_subs (sub);
+CREATE TABLE IF NOT EXISTS push_cola (
+  id BIGSERIAL PRIMARY KEY, endpoint TEXT NOT NULL REFERENCES push_subs(endpoint) ON DELETE CASCADE, cuando TIMESTAMPTZ NOT NULL,
+  titulo TEXT NOT NULL, cuerpo TEXT NOT NULL, url TEXT NOT NULL DEFAULT '/', clave TEXT, enviada TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS push_cola_clave ON push_cola (endpoint, clave) WHERE clave IS NOT NULL;
+CREATE INDEX IF NOT EXISTS push_cola_pend ON push_cola (cuando) WHERE enviada IS NULL;
