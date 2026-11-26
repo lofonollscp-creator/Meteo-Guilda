@@ -1154,3 +1154,54 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .memlist{list-style:none;margin:2px 0 10px;padding:0;display:grid;gap:6px}
 .memlist li{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13.5px}
 .acct .row input[type=text]{flex:1;min-width:0}
+
+/* =====================================================================
+   v4 — Asistente minimalista (lienzo «Asistente IA minimalista»): un solo acento (el de la app),
+   respuesta en texto limpio sin avatar, tarjetas planas con borde, barra de entrada neutra y Live oscuro
+   ===================================================================== */
+:root{--ai:var(--accent);--ai-soft:var(--accent-soft);--aig:var(--accent)}
+:root[data-theme="dark"]{--ai:var(--accent);--ai-soft:var(--accent-soft);--aig:var(--accent)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ai:var(--accent);--ai-soft:var(--accent-soft);--aig:var(--accent)}}
+.nav #chatbtn{box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 35%,transparent)}
+/* cabecera: un punto de color en vez del avatar */
+.chat .chat-av{width:8px;height:8px;min-width:8px;border-radius:50%;background:var(--accent);margin-right:-2px}
+.chat .chat-av svg{display:none}
+/* mensajes: sin avatar, la respuesta ocupa todo el ancho */
+.chat .m .av{display:none}
+.chat .m.a{gap:0}
+.chat .m.u{background:var(--accent);color:var(--accent-ink);border-radius:20px 20px 6px 20px;padding:10px 16px}
+/* datos consultados: una línea discreta, sin píldoras */
+.chat .tools{gap:2px 12px;margin-top:10px}
+.chat .tools .tl{padding:0;background:none;box-shadow:none;border-radius:0;font-size:12.5px;color:var(--ink-3)}
+.chat .tools .tl::before{content:"✓ ";color:var(--ok)}
+.chat .tools .tl.bad::before{content:"! ";color:var(--bad)}
+.chat .tools a.tl.go{background:none;color:var(--accent);min-height:32px;align-items:center}
+.chat .tools a.tl.go::before{content:none}
+/* tarjetas planas */
+.chat .dcard{border-radius:18px;padding:16px;box-shadow:none;border:1px solid var(--line-2);background:var(--surface)}
+.chat .dc-acts button{min-height:44px}
+.chat .dc-acts .pri{min-height:44px}
+.chat .dc-acts .ghost{background:var(--surface);border:1px solid var(--line)}
+/* pie de la respuesta más ligero */
+.chat .mf{margin-top:6px}
+.chat .mf small{display:none}
+.chat .mf .copy{min-height:44px;padding:0 8px}
+/* barra de entrada: píldora con borde fino, sin sombra de color */
+.chat textarea{background:var(--surface);box-shadow:none;border:1px solid var(--line);border-radius:999px;padding:13px 20px}
+.chat textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.chat .chat-send{background:var(--accent);color:var(--accent-ink)}
+.chat .chat-mic{background:transparent;color:var(--ink-2)}
+.chat .ctxline .chip,.chat .ctxline .chip.on-ai{background:transparent;color:var(--ink-3);padding-left:0}
+.chat .hintcards .ico{background:var(--accent-soft);color:var(--accent)}
+/* Live: oscuro, orbe plano y controles sobrios */
+.chat .live{background:#0e1114;color:#e8ecef;backdrop-filter:none}
+.chat .live-h b,.chat .live-cap,.chat .live-note{color:#9aa4ae}
+.chat .live-st{color:#e8ecef}
+.chat .live-h .icon-btn{color:#9aa4ae}
+.chat .live-h b i{background:var(--accent)}
+.chat .orb{background:var(--accent);box-shadow:0 0 70px color-mix(in srgb,var(--accent) 40%,transparent)}
+.chat .orb i{border-color:var(--accent)}
+.chat .live-ctl .rb{background:#161a1f;border:1px solid #2a3037;color:#e8ecef}
+.chat .live-ctl .rb[aria-pressed="true"]{background:#e8ecef;color:#0e1114}
+.chat .live-ctl .end{background:#e8ecef;color:#0e1114}
+.chat .live{--accent:#5ec4bd;--ai:#5ec4bd}
