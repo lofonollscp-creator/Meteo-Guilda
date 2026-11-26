@@ -20,4 +20,4 @@ build-backend = "setuptools.build_meta"
 packages = ["meteoguilda"]
 
 [tool.setuptools.package-data]
-meteoguilda = ["sql/*.sql"]
+meteoguilda = ["sql/*.sql", "data/*.json"]

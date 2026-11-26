@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
+from . import meteocat
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -292,6 +293,13 @@ async def avisos(request: Request, lat: float = Query(ge=-90, le=90), lon: float
     """Avisos oficiales vigentes (AEMET/Meteoalerta) que afectan al punto, más los enlaces oficiales. Sin clave de AEMET solo salen los enlaces."""
     limit(request, "point")
     return avisos_mod.para_punto(await avisos_mod.todos(H(request)), lat, lon)
+
+
+@app.get("/api/oficial")
+async def oficial(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)):
+    """Predicción oficial a 8 días del Meteocat (solo Cataluña; plan de 100 consultas/mes: caché de 18 h y topes propios, ver meteocat.py)."""
+    limit(request, "point")
+    return await meteocat.prediccion(H(request), lat, lon)
 
 
 @app.get("/api/forecast/ai")

@@ -1140,3 +1140,6 @@ dialog#dlg:focus,dialog#dlg:focus-visible,dialog#dlg .dlg-in:focus{outline:0}
 .mchip{min-height:30px;display:inline-flex;align-items:center}
 @media (pointer:coarse){.mchip,.mapbtn{min-height:40px}}
 @media (max-width:900px){.offline{top:auto;bottom:calc(150px + env(safe-area-inset-bottom));max-width:calc(100vw - 32px);white-space:nowrap}}   /* sobre la barra de preguntas: arriba tapaba las pestañas y el título */
+
+/* predicción oficial del Meteocat */
+#oficial td.num,#oficial th{white-space:nowrap}

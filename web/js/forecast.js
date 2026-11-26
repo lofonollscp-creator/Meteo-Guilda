@@ -329,6 +329,7 @@ function render(d) {
   </section>
 
   <section class="sec"><div class="label">Próximos días <em>mínima–máxima · lluvia · racha</em></div><div class="days">${dayRows}</div></section>
+  <section class="sec" id="oficial" hidden></section>
 
   <section class="sec"><div class="label">Horas y gráficos
       <span class="seg" role="group" aria-label="Horizonte"><button type="button" data-h="16" aria-pressed="${horizon === 16}">48 h</button><button type="button" data-h="40" aria-pressed="${horizon === 40}">5 días</button></span></div>
@@ -380,6 +381,7 @@ function render(d) {
   drawCharts(T, mountain);
   drawModels(c);
   loadAvisos(la, lo, req);
+  loadOficial(la, lo, req, c.dias);
   lazyLoad("#act-sec", () => loadActivities(la, lo));
   lazyLoad("#air-sec", () => loadAir(la, lo));
   loadMar(la, lo);
@@ -463,6 +465,20 @@ async function loadInsights(at, my) {
   box.innerHTML = `<div class="insights"><div class="ins-head"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Tu día, según Guilda</span><span class="small">${esc(nm)}</span></div>
     ${rows.map((r, i) => `<div class="ins"><span class="ic2 ${r.cls || ""}">${icon(r.ic, 19)}</span><div><b>${esc(r.t)}</b><span class="s">${esc(r.s)}</span></div>${r.href ? `<a class="askb" href="${r.href}">${r.cta}</a>` : `<button class="askb" type="button" data-i="${i}">${r.cta}</button>`}</div>`).join("")}</div>`;
   box.onclick = (e) => { const b = e.target.closest("[data-i]"); if (b) ctx.ask?.(rows[+b.dataset.i].ask); };
+}
+/* Predicción oficial del Meteocat (solo Cataluña) al lado de los modelos: máx. del Meteocat frente a la media de los modelos, para ver si coinciden */
+async function loadOficial(la, lo, my, dias) {
+  const box = $("#oficial"); if (!box) return;
+  let r; try { r = await api(`/api/oficial?lat=${la}&lon=${lo}`); } catch { return; }
+  if (my !== req || !$("#oficial") || !r?.disponible || !r.dias?.length) return;
+  const mod = new Map((dias || []).map((x) => [x.fecha, x]));
+  const dn = (f) => new Date(f + "T12:00").toLocaleDateString("es", { weekday: "short", day: "numeric" }).replace(".", "");
+  const fila = (x) => { const m = mod.get(x.fecha), dif = m && x.tmax != null && m.temp_max_c != null ? Math.round(x.tmax - m.temp_max_c) : null;
+    return `<tr><td>${esc(dn(x.fecha))}</td><td>${esc(x.cielo || "–")}</td><td class="num">${x.tmin != null ? Math.round(x.tmin) : "–"}°/${x.tmax != null ? Math.round(x.tmax) : "–"}°</td><td class="num">${m ? t0(m.temp_max_c) + "°" : "–"}${dif ? ` <small>(${dif > 0 ? "+" : ""}${dif})</small>` : ""}</td><td class="num">${x.lluvia_prob_pct != null ? Math.round(x.lluvia_prob_pct) + "%" : "–"}</td></tr>`; };
+  box.hidden = false;
+  box.innerHTML = `<div class="label">Predicción oficial · Meteocat <em>${esc(r.municipio)}${r.antiguo ? " · dato de hace más de un día" : ""}</em></div>
+    <div class="tablewrap"><table><thead><tr><th>Día</th><th>Cielo</th><th>Mín/máx</th><th>Modelos</th><th>Lluvia</th></tr></thead><tbody>${r.dias.slice(0, 7).map(fila).join("")}</tbody></table></div>
+    <p class="aviso-links">Predicción municipal del Servei Meteorològic de Catalunya · <a href="${esc(r.enlace)}" target="_blank" rel="noopener">ver en meteo.cat</a>. «Lluvia» es la probabilidad; entre paréntesis, la diferencia del Meteocat con la media de los modelos.</p>`;
 }
 async function loadAvisos(la, lo, my) {
   const box = $("#avisos"); if (!box) return;
