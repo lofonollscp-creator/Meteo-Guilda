@@ -136,3 +136,26 @@ CREATE TABLE IF NOT EXISTS push_reglas (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS push_cola_clave ON push_cola (endpoint, clave) WHERE clave IS NOT NULL;
 CREATE INDEX IF NOT EXISTS push_cola_pend ON push_cola (cuando) WHERE enviada IS NULL;
+
+-- Rutas guardadas de cada persona (cuenta de Guilda Work): las usan las alertas en ruta y el planificador de salidas (ver rutas_guardadas.py)
+CREATE TABLE IF NOT EXISTS rutas_guardadas (
+  id BIGSERIAL PRIMARY KEY, sub TEXT NOT NULL, nombre TEXT NOT NULL, modo TEXT NOT NULL DEFAULT 'foot', waypoints JSONB NOT NULL,
+  creada TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rutas_guardadas_sub ON rutas_guardadas (sub);
+
+-- Alertas de radioaficionado y salidas (ver alertas.py): de la PERSONA (llegan a todos sus dispositivos con notificaciones), con tope diario y silencio
+CREATE TABLE IF NOT EXISTS alertas_prefs (
+  sub TEXT PRIMARY KEY, max_dia SMALLINT NOT NULL DEFAULT 6, silencio_desde SMALLINT, silencio_hasta SMALLINT,
+  zona TEXT NOT NULL DEFAULT 'Europe/Madrid', actualizada TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS alertas (
+  id BIGSERIAL PRIMARY KEY, sub TEXT NOT NULL, tipo TEXT NOT NULL, nombre TEXT, params JSONB NOT NULL,
+  activa BOOLEAN NOT NULL DEFAULT TRUE, creada TIMESTAMPTZ NOT NULL DEFAULT now(), ultima TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS alertas_sub ON alertas (sub);
+CREATE TABLE IF NOT EXISTS alertas_envios (
+  sub TEXT NOT NULL, clave TEXT NOT NULL, cuando TIMESTAMPTZ NOT NULL DEFAULT now(), titulo TEXT,
+  PRIMARY KEY (sub, clave)
+);
+CREATE INDEX IF NOT EXISTS alertas_envios_cuando ON alertas_envios (sub, cuando DESC);

@@ -5,6 +5,7 @@ import asyncio
 import csv
 import math
 import sys
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -122,7 +123,14 @@ def parse_kp(rows) -> float | None:
     return float(last["Kp"] if isinstance(last, dict) else last[1])
 
 
+_solar_cache: tuple[float, dict] = (0.0, {})
+
+
 async def solar(client: httpx.AsyncClient) -> dict:
+    """Kp y flujo solar de NOAA, con caché de 15 min (NOAA actualiza cada 3 h el Kp y una vez al día el flujo)."""
+    global _solar_cache
+    if time.time() - _solar_cache[0] < 900 and _solar_cache[1]:
+        return _solar_cache[1]
     kp = sfi = None
     try:
         r = await client.get(f"{SWPC}/products/noaa-planetary-k-index.json", timeout=15)
@@ -134,7 +142,10 @@ async def solar(client: httpx.AsyncClient) -> dict:
         sfi = float(r.json()["Flux"])
     except Exception:  # noqa: BLE001
         pass
-    return {"kp": kp, "sfi": sfi, **hf_outlook(kp, sfi), "fuente": "NOAA SWPC"}
+    out = {"kp": kp, "sfi": sfi, **hf_outlook(kp, sfi), "fuente": "NOAA SWPC"}
+    if kp is not None or sfi is not None:
+        _solar_cache = (time.time(), out)
+    return out
 
 
 def hf_outlook(kp: float | None, sfi: float | None) -> dict:

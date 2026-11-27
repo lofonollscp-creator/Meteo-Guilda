@@ -4,6 +4,7 @@ import { me, load, save, setKey, delKey, aiOn } from "./me.js";
 import { getQth, hasQth, label as qthLabel, locate, clearQth } from "./qth.js";
 import { infoPantalla } from "./pantalla.js";
 import * as push from "./push.js";
+import * as alertas from "./alertas.js";
 
 const json = { "content-type": "application/json" };
 let ctx, dlg, tab = "ia", syncView;
@@ -145,12 +146,14 @@ async function avisosView(body) {
           <div class="row"><button class="btn sm" type="button" id="av-save">Guardar</button><button class="btn ghost sm" type="button" id="av-test">Enviar una de prueba</button></div>
         </div>`}
       <p class="note" id="av-res" role="status"></p>
+      ${cfg.disponible ? '<div class="field"><span class="lbl">Alertas de radio y salidas</span><div id="al-box"><div class="skeleton" style="height:80px;border-radius:16px"></div></div></div>' : ""}
       <details class="field"><summary class="note">Qué guardamos</summary><p class="note">El identificador de este navegador que le da su servicio de notificaciones (Google, Mozilla o Apple), sus claves de cifrado, tu ubicación aproximada (1 km), los avisos con umbral que hayas creado y lo que has elegido recibir. El contenido de cada notificación viaja cifrado hasta tu navegador. Se borra al desactivarlas, al borrar tu cuenta o tras 90 días sin poder entregarte nada. No se usa para publicidad ni se cede a terceros.</p></details>`;
     $("#av-on")?.addEventListener("change", async (e) => {
       try { if (e.target.checked) { await push.activar(prefs()); msg("Notificaciones activadas en este dispositivo.", "ok"); } else { await push.desactivar(); msg("Notificaciones desactivadas y dispositivo borrado del servidor.", "ok"); } } catch (er) { msg(er.message, "bad"); }
       pintar(await push.estado());
     });
     reglasView(est, q, msg);
+    alertas.view($("#al-box"));
     $("#av-save")?.addEventListener("click", async () => { try { await push.guardar(prefs()); msg("Guardado.", "ok"); } catch (er) { msg(er.message, "bad"); } });
     $("#av-test")?.addEventListener("click", async () => { msg("Enviando…"); try { (await push.probar()).ok ? msg("Enviada: debería llegarte en unos segundos.", "ok") : msg("El servicio de notificaciones no la ha aceptado.", "bad"); } catch (er) { msg(er.message, "bad"); } });
   };

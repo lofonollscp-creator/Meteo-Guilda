@@ -25,6 +25,7 @@ from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
 from . import push, reglas, memoria, configuracion, uso_ia, estado as estado_mod
+from . import alertas, rutas_guardadas
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -178,6 +179,31 @@ async def repeaters_loop(http: httpx.AsyncClient):
         await asyncio.sleep(24 * 3600)
 
 
+_tropo_cache: dict[tuple, tuple[float, dict]] = {}
+
+
+async def tropo_cacheada(http: httpx.AsyncClient, lat: float, lon: float) -> dict:
+    """Propagación tropo con caché de 3 h por punto (~10 km): la usan las alertas sin gastar una consulta por cada una."""
+    k = (round(lat, 1), round(lon, 1))
+    hit = _tropo_cache.get(k)
+    if hit and time.time() - hit[0] < 3 * 3600:
+        return hit[1]
+    out = await radio.propagation(http, lat, lon)
+    if len(_tropo_cache) > 300:
+        _tropo_cache.clear()
+    _tropo_cache[k] = (time.time(), out)
+    return out
+
+
+def fuentes_alertas(http: httpx.AsyncClient) -> alertas.Fuentes:
+    """Datos que necesitan las alertas (alertas.py), con las mismas cachés que la API."""
+    async def pasos(lat, lon, norad, horas, min_el):
+        return (await _sat_passes(http, lat, lon, horas, min_el, ",".join(map(str, norad))))[1]
+    return alertas.Fuentes(resumen=lambda la, lo: get_summary(http, la, lo), mar=lambda la, lo: mar_mod.fetch(http, la, lo),
+                           tropo=lambda la, lo: tropo_cacheada(http, la, lo), solar=lambda: radio.solar(http), pasos=pasos,
+                           avisos=lambda: avisos_mod.todos(http))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http = httpx.AsyncClient(timeout=30, headers={"User-Agent": "MeteoGuilda/0.2"},
@@ -186,12 +212,14 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(db.init_schema)
     except Exception as e:  # noqa: BLE001
         log.warning("PostGIS no disponible (%s); estaciones y repetidores desactivados", e)
+    app.state.fuentes_alertas = fuentes_alertas(app.state.http)
     for problema in configuracion.avisos():
         log.warning("configuración sospechosa: %s", problema)
     tasks = []
     if os.environ.get("MG_PREGEN") == "1":
         tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
-        tasks.append(asyncio.create_task(push.bucle(app.state.http, (lambda la, lo: get_summary(app.state.http, la, lo), lambda la, lo: mar_mod.fetch(app.state.http, la, lo)))))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
+        tasks.append(asyncio.create_task(push.bucle(app.state.http, (lambda la, lo: get_summary(app.state.http, la, lo), lambda la, lo: mar_mod.fetch(app.state.http, la, lo)),
+                                                    app.state.fuentes_alertas)))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
     if os.environ.get("MG_REPEATERS_SYNC") == "1":
         tasks.append(asyncio.create_task(repeaters_loop(app.state.http)))
     yield
@@ -210,6 +238,8 @@ app.include_router(account.router)
 app.include_router(push.router)
 app.include_router(reglas.router)
 app.include_router(memoria.router)
+app.include_router(alertas.router)
+app.include_router(rutas_guardadas.router)
 
 
 @app.get("/api/cuota")

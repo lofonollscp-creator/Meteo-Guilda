@@ -42,6 +42,23 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Locator Maidenhead | `GET /api/locator` | `maidenhead` |
 | Mi QTH (el mismo que «Mi ubicación») | `PUT /api/me/settings` (`home`) y perfil `PUT /api/profile` | `set_my_location`, `profile_set` |
 
+## Alertas de radio y salidas (Ajustes → Avisos; de la cuenta, llegan a todos tus dispositivos con notificaciones)
+| En la web | API | MCP |
+|---|---|---|
+| Lista de alertas, límites, últimas enviadas y catálogo de tipos | `GET /api/alertas` | `list_alerts` (OAuth) |
+| Nueva alerta: tropo VHF/UHF, HF (mejora o tormenta), pasos de satélite, tiempo u aviso oficial en el QTH o en una ruta guardada | `POST /api/alertas` | `create_alert` (OAuth) |
+| Pausar / reanudar / renombrar | `PATCH /api/alertas/{id}` | `update_alert` (OAuth) |
+| Borrar | `DELETE /api/alertas/{id}` | `delete_alert` (OAuth) |
+| «Comprobar» (¿saltaría ahora? sin mandar nada) | `GET /api/alertas/{id}/comprobar` | `check_alert` (OAuth) |
+| Máximo de avisos al día y horario de silencio | `PUT /api/alertas/prefs` | `set_alert_limits` (OAuth) |
+
+## Rutas guardadas (Rutas → «Guardar ruta» y «Mis rutas guardadas»)
+| En la web | API | MCP |
+|---|---|---|
+| Lista de rutas guardadas | `GET /api/rutas`, `GET /api/rutas/{id}` | `list_saved_routes` (OAuth) |
+| Guardar la ruta calculada (con el mismo nombre, se sustituye) | `POST /api/rutas` | `save_route` (OAuth) |
+| Borrar una ruta guardada (y sus alertas) | `DELETE /api/rutas/{id}` | `delete_saved_route` (OAuth) |
+
 ## Cuaderno QSL y sincronización (clave del cuaderno)
 | En la web | API | MCP |
 |---|---|---|

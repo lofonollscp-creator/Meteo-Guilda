@@ -14,7 +14,7 @@ const LV = ["Favorable", "Precaución", "Desaconsejable"];
 export function mount(c) {
   ctx = c; wps = wps || blank(); depart = depart || nextHalf();
   ctx.cola.innerHTML = `${ctx.brand("routes", "Planificador de rutas")}${aiOn() ? `<form class="route-ai" id="route-ai"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Cuéntaselo a Guilda</span><div class="route-ai-in"><input id="route-q" type="text" maxlength="400" placeholder="«Espot al refugi, mañana a las 8»" aria-label="Describe tu ruta"><button class="go" type="submit" aria-label="Enviar">${icon("up", 16)}</button></div><small>Te lo explica con el tiempo real; los puntos los fijas abajo o en el mapa.</small></form>` : ""}<div class="form" id="form"></div>
-    <div id="recents"></div><p class="cola-note">Rutas a pie y en coche con Valhalla/OpenStreetMap. Tiempos a pie con la regla de Naismith. Importa un GPX para usar tu propio track.</p>`;
+    <div id="recents"></div><div id="saved"></div><p class="cola-note">Rutas a pie y en coche con Valhalla/OpenStreetMap. Tiempos a pie con la regla de Naismith. Importa un GPX para usar tu propio track.</p>`;
   ctx.colb.innerHTML = `<div class="article"><h1>Planifica la salida con el tiempo a favor</h1><p class="lead">Marca un origen y un destino (o importa un GPX), elige cuándo sales y Meteo Guilda calcula la previsión en cada punto <em>a la hora en que llegarás</em>, el riesgo por tramo y la mejor ventana para salir.</p>
     <div class="callout">Consejo: pulsa «Mapa» junto a un punto y toca el mapa para fijarlo.</div></div>`;
   ctx.onMapClick = ({ lat, lng }) => {
@@ -24,7 +24,7 @@ export function mount(c) {
   };
   ctx.mapCtl('<span class="chip chip-ghost">Toca el mapa para fijar el siguiente punto</span>');
   ctx.stations(false);
-  paintForm(); paintRecents(); drawWps();
+  paintForm(); paintRecents(); paintSaved(); drawWps();
   $("#route-ai")?.addEventListener("submit", (e) => { e.preventDefault(); const v = $("#route-q").value.trim(); if (v) { $("#route-q").value = ""; ctx.ask?.(`Quiero planificar una ruta: ${v}`); } });
   if (result) { paintResult(); drawRoute(); }
 }
@@ -86,6 +86,26 @@ function wireSearch(inp) {
 function paintRecents() {
   $("#recents").innerHTML = recents.length ? `<div class="group-label">Recientes</div><div class="recent">${recents.map((r, i) => `<button type="button" data-r="${i}">${esc(r.a)} ${icon("right", 12)} ${esc(r.b)} <small>· ${r.mode === "foot" ? "a pie" : "coche"}</small></button>`).join("")}</div>` : "";
   $$("[data-r]", $("#recents")).forEach((b) => b.addEventListener("click", () => { const r = recents[+b.dataset.r]; mode = r.mode; wps = JSON.parse(JSON.stringify(r.wps)); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
+}
+
+/* Rutas guardadas en la cuenta: las usan las alertas de ruta (Ajustes → Avisos) y el planificador de salidas por tramos. */
+let saved = [];
+async function paintSaved() {
+  const box = $("#saved"); if (!box) return;
+  try { saved = (await api("/api/rutas")).rutas; } catch { saved = []; }
+  if (!$("#saved")) return;
+  box.innerHTML = saved.length ? `<div class="group-label">Mis rutas guardadas</div><div class="recent">${saved.map((r, i) => `<span class="row" style="gap:4px;flex-wrap:nowrap"><button type="button" data-sv="${i}">${esc(r.nombre)} <small>· ${r.modo === "foot" ? "a pie" : r.modo === "car" ? "coche" : "mar"}</small></button><button class="icon-btn" type="button" data-svx="${r.id}" aria-label="Borrar la ruta ${esc(r.nombre)}" style="width:26px;height:26px">${icon("x", 14)}</button></span>`).join("")}</div>` : "";
+  $$("[data-sv]", box).forEach((b) => b.addEventListener("click", () => { const r = saved[+b.dataset.sv]; mode = r.modo === "car" ? "car" : "foot"; wps = r.waypoints.map((w) => ({ label: w.nombre || `${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}`, lat: w.lat, lon: w.lon })); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
+  $$("[data-svx]", box).forEach((b) => b.addEventListener("click", async () => { if (!confirm("¿Borrar esta ruta guardada? También se borran sus alertas.")) return; try { await api(`/api/rutas/${b.dataset.svx}`, { method: "DELETE" }); paintSaved(); } catch (e) { ctx.toast(e.message); } }));
+}
+async function saveRoute() {
+  const pts = wps.filter((w) => w.lat != null);
+  const nombre = prompt("Nombre de la ruta", `${pts[0]?.label || "Origen"} → ${pts.at(-1)?.label || "Destino"}`.slice(0, 80));
+  if (!nombre?.trim()) return;
+  try {
+    const r = await api("/api/rutas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nombre: nombre.trim().slice(0, 80), modo: mode, waypoints: pts.map((w) => ({ lat: w.lat, lon: w.lon, nombre: /^-?\d/.test(w.label) ? null : (w.label || null) })) }) });
+    ctx.toast(r.sustituida ? "Ruta actualizada" : "Ruta guardada: puedes crearle alertas en Ajustes → Avisos"); paintSaved();
+  } catch (e) { ctx.toast(e.message); }
 }
 
 /* ---------- cálculo ---------- */
@@ -163,7 +183,7 @@ function paintResult() {
   const L = r.lectura;
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${r.modo === "foot" ? "Ruta a pie" : "Ruta en coche"} · ${nf1.format(r.distancia_km)} km</h1><p>Salida ${esc(fmtDT(r.salida))} · llegada ${eta}</p></div>
-    <div class="d-actions"><button class="btn ghost sm" id="gpx-dl" type="button">${icon("download", 14)} Descargar GPX</button></div></div>
+    <div class="d-actions">${gpx ? "" : `<button class="btn ghost sm" id="rt-save" type="button">${icon("plus", 14)} Guardar ruta</button>`}<button class="btn ghost sm" id="gpx-dl" type="button">${icon("download", 14)} Descargar GPX</button></div></div>
   <div class="badges"><span class="pill lv${r.nivel_global ?? 1}"><i></i>${esc(r.nivel_texto)}</span></div>
   <div class="summary" style="margin-top:16px">
     <div class="stat"><span class="lbl">Distancia</span><span class="num">${nf1.format(r.distancia_km)}<small>km</small></span></div>
@@ -193,6 +213,7 @@ function paintResult() {
     ${r.repetidores?.length ? r.repetidores.map((x) => `<div class="rep"><span class="f">${x.freq_mhz.toFixed(3)} MHz</span><span><span class="tag ok">${Math.round(x.pct)}% del recorrido</span></span><span class="meta">${esc(x.callsign || x.name)} · ${esc(x.mode)}${x.tone_hz ? ` · ${x.tone_hz} Hz` : ""}${x.shift_khz ? ` · ${x.shift_khz > 0 ? "+" : ""}${x.shift_khz} kHz` : ""}</span></div>`).join("") : '<p class="empty">Sin repetidores con cobertura calculada en este recorrido. Útil en montaña: <a href="#/radio/repetidores">consulta la sección Radio</a>.</p>'}</section>`;
   $$("[data-dep]", ctx.colb).forEach((b) => b.addEventListener("click", () => { depart = localInput(new Date(b.dataset.dep)); paintForm(); calc(); }));
   $("#mk-ia")?.addEventListener("click", () => calc({ ia: true }));
+  $("#rt-save")?.addEventListener("click", saveRoute);
   $("#gpx-dl").addEventListener("click", () => { const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([gpxOf(r)], { type: "application/gpx+xml" })), download: "meteoguilda-ruta.gpx" }); a.click(); URL.revokeObjectURL(a.href); });
   renderProfile($("#profile"), r, hover);
   if (ok) {

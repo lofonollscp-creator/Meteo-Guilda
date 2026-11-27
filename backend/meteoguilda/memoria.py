@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import account, db, reglas
+from . import account, alertas, db, reglas, rutas_guardadas
 
 router = APIRouter()
 CATS = {"actividad": "Actividades", "lugar": "Lugares", "radio": "Radioafición", "unidades": "Unidades y formato", "estilo": "Estilo de respuesta", "otro": "Otras"}
@@ -154,5 +154,6 @@ def exportar(request: Request):
     cuerpo = {"generado": datetime.now(timezone.utc).isoformat(), "cuenta": {"email": user.get("email")},
               "ajustes": {k: s.get(k) for k in ("ai_enabled", "provider", "model", "home")}, "claves_guardadas": sorted(keys),
               "memoria": _estado(user["sub"]), "notificaciones": push.datos_de(user["sub"]), "avisos_personalizados": reglas.de_persona(user["sub"]),
+              "alertas_radio_y_salidas": alertas.exportar_de(user["sub"]), "rutas_guardadas": rutas_guardadas.de_persona(user["sub"]),
               "nota": "El cuaderno QSL y los favoritos viven en tu perfil de sincronización (Ajustes → Sincronización y API). Más información: docs/PRIVACIDAD.md."}
     return JSONResponse(cuerpo, headers={"Content-Disposition": 'attachment; filename="mis-datos-guilda.json"'})

@@ -462,6 +462,69 @@ async def test_ai_connection(ctx: Context) -> dict:
     return await _as(_need_who(ctx), "POST", "/api/me/test")
 
 
+# ---------- Alertas de radio y salidas, y rutas guardadas (de la cuenta: OAuth) ----------
+@mcp.tool()
+async def list_alerts(ctx: Context) -> dict:
+    """Tus alertas de radio y salidas (tropo VHF/UHF, HF, pasos de satélite, tiempo en un lugar o en una ruta guardada), tus límites (tope de avisos al día y
+    horario de silencio), lo último que se te envió, cuántos dispositivos las reciben y el catálogo de tipos y parámetros. Requiere OAuth."""
+    return await _as(_need_who(ctx), "GET", "/api/alertas")
+
+
+@mcp.tool()
+async def create_alert(ctx: Context, tipo: Literal["tropo", "hf", "satelite", "meteo", "ruta"], params: dict, nombre: str | None = None) -> dict:
+    """Crea una alerta que te llega como notificación push a tus dispositivos (actívalas antes en la web, Ajustes → Avisos). `params` según `tipo`:
+    tropo {lat, lon, nombre?, nivel: "super-refracción"|"conducto"} · hf {modo: "mejora"|"tormenta", sfi_min, kp_max, kp_min} ·
+    satelite {norad: [ids, máx. 5], lat, lon, nombre?, min_el, antelacion_min} · meteo {lat, lon, nombre?, variable: viento|racha|lluvia|oleaje|aviso, umbral (aviso: nivel 1-3)} ·
+    ruta {ruta_id (de list_saved_routes), variable, umbral}. Cada alerta avisa como mucho una vez al día (los satélites, una por paso). Requiere OAuth."""
+    return await _as(_need_who(ctx), "POST", "/api/alertas", json={"tipo": tipo, "params": params, "nombre": nombre})
+
+
+@mcp.tool()
+async def update_alert(ctx: Context, alert_id: int, active: bool | None = None, name: str | None = None) -> dict:
+    """Pausa (`active=false`), reanuda o renombra una alerta. Requiere OAuth."""
+    return await _as(_need_who(ctx), "PATCH", f"/api/alertas/{alert_id}", json={"activa": active, "nombre": name})
+
+
+@mcp.tool()
+async def delete_alert(ctx: Context, alert_id: int) -> dict:
+    """Borra una alerta. Requiere OAuth."""
+    return await _as(_need_who(ctx), "DELETE", f"/api/alertas/{alert_id}")
+
+
+@mcp.tool()
+async def set_alert_limits(ctx: Context, max_per_day: int | None = None, quiet_from_hour: int | None = None, quiet_to_hour: int | None = None,
+                           timezone: str | None = None, no_quiet_hours: bool = False) -> dict:
+    """Tus límites de alertas: tope de avisos al día entre todas (1-30) y horario de silencio (horas 0-23 en tu zona, p. ej. 23 a 7; `no_quiet_hours=true` lo quita).
+    Lo que cae en el silencio no se manda y se vuelve a mirar después. Requiere OAuth."""
+    body = {"max_dia": max_per_day, "silencio_desde": quiet_from_hour, "silencio_hasta": quiet_to_hour, "zona": timezone, "sin_silencio": no_quiet_hours}
+    return await _as(_need_who(ctx), "PUT", "/api/alertas/prefs", json=body)
+
+
+@mcp.tool()
+async def check_alert(ctx: Context, alert_id: int) -> dict:
+    """Evalúa ahora una alerta SIN mandar nada: si saltaría, con qué texto, y si la frenarían el silencio o el tope diario. Requiere OAuth."""
+    return await _as(_need_who(ctx), "GET", f"/api/alertas/{alert_id}/comprobar")
+
+
+@mcp.tool()
+async def list_saved_routes(ctx: Context) -> dict:
+    """Tus rutas guardadas (nombre, modo y puntos de paso): para las alertas de ruta y el planificador de salidas. Requiere OAuth."""
+    return await _as(_need_who(ctx), "GET", "/api/rutas")
+
+
+@mcp.tool()
+async def save_route(ctx: Context, name: str, waypoints: list[dict], mode: Literal["foot", "car", "sea"] = "foot") -> dict:
+    """Guarda una ruta con nombre: `waypoints` = 2-10 puntos {lat, lon, nombre?}; `mode` foot (a pie/monte), car (carretera) o sea (navegación, en línea recta).
+    Con un nombre que ya existe, la sustituye. Requiere OAuth."""
+    return await _as(_need_who(ctx), "POST", "/api/rutas", json={"nombre": name, "modo": mode, "waypoints": waypoints})
+
+
+@mcp.tool()
+async def delete_saved_route(ctx: Context, route_id: int) -> dict:
+    """Borra una ruta guardada y las alertas que dependían de ella. Requiere OAuth."""
+    return await _as(_need_who(ctx), "DELETE", f"/api/rutas/{route_id}")
+
+
 class _Bearer:
     """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
     /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""

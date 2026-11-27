@@ -10,6 +10,8 @@ Todo lo que sigue es **opcional y desactivado por defecto**, salvo la sesión (n
 | Claves de API propias (cifradas con Fernet) | Usar el proveedor de IA elegido | Consentimiento (las introduce ella) | `user_settings.keys` | Hasta que las quite | «Quitar clave»; «Borrar mis ajustes y claves» |
 | **Memoria del asistente** (notas de preferencias) | Adaptar las respuestas | **Consentimiento** (opt-in) | `user_settings.settings.memoria` | **12 meses** por nota | Borrar nota / todo; desactivar la memoria; borrar la cuenta |
 | **Notificaciones push** (endpoint del navegador, claves de cifrado, ubicación a ~1 km, preferencias) | Avisos oficiales y recordatorios de pasos | **Consentimiento** (permiso del navegador + activarlo en Ajustes) | `push_subs`, `push_cola` | Hasta desactivarlas; **90 días** sin entregas correctas | Desactivar en Ajustes → Avisos; borrar la cuenta |
+| **Alertas de radio y salidas** (tipo, parámetros con el lugar a ~1 km, tope diario, silencio y zona horaria, títulos de lo enviado) | Avisar de lo que la persona pide | **Consentimiento** (las crea ella; llegan por las notificaciones) | `alertas`, `alertas_prefs`, `alertas_envios` | Hasta que las borre; lo enviado, **30 días** | Borrar en Ajustes → Avisos; borrar la cuenta |
+| Rutas guardadas (nombre y puntos de paso) | Alertas en ruta y planificador de salidas | Ejecución del servicio | `rutas_guardadas` | Hasta que la persona las borre (máx. 20) | Rutas → «Mis rutas guardadas»; borrar la cuenta |
 | Cuaderno QSL y favoritos | Funciones de radio y lugares | Ejecución del servicio | Perfil de sincronización (`profiles`, `qsos`) | Hasta que la persona los borre | Ajustes → Sincronización y API |
 
 ## Memoria del asistente (2.5)
@@ -28,6 +30,6 @@ Todo lo que sigue es **opcional y desactivado por defecto**, salvo la sesión (n
 
 ## Ejercicio de derechos
 - **Acceso y portabilidad**: Ajustes → Memoria → «Descargar todos mis datos» (`/api/me/datos`). No incluye las claves de API.
-- **Supresión**: Ajustes → Cuenta → «Borrar mis ajustes y claves» (`DELETE /api/me`) elimina ajustes, claves, memoria y dispositivos de notificaciones.
+- **Supresión**: Ajustes → Cuenta → «Borrar mis ajustes y claves» (`DELETE /api/me`) elimina ajustes, claves, memoria, dispositivos de notificaciones, alertas y rutas guardadas.
 - **Retirada del consentimiento**: desactivar la memoria / las notificaciones.
 - Cualquier otra solicitud: a la persona responsable de Guilda Work.

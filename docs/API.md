@@ -39,6 +39,8 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/avisos?lat=&lon=` | Avisos oficiales vigentes (AEMET) del punto + enlaces; requiere `AEMET_API_KEY` para los avisos |
 | `GET /api/precision?lat=&lon=&dias=` | Qué modelo acierta más la temperatura a 24 h en el lugar principal más cercano (≤ 60 km), frente a estaciones XEMA/METAR; vacío hasta reunir ≥ 8 comparaciones por modelo |
 | `GET /api/push/config` · `PUT\|DELETE /api/push/suscripcion` · `POST /api/push/estado\|paso\|prueba` | Notificaciones push (requieren sesión y `MG_VAPID_*`): suscribir el navegador con sus preferencias, recordar un paso de satélite 5 min antes y enviar una de prueba |
+| `GET /api/alertas` · `POST /api/alertas` · `PATCH\|DELETE /api/alertas/{id}` · `GET /api/alertas/{id}/comprobar` · `PUT /api/alertas/prefs` | Alertas de radio y salidas de la persona (tropo, HF, satélites, tiempo en el QTH o en una ruta guardada), con tope diario y horario de silencio; ver `alertas.py` |
+| `GET\|POST /api/rutas` · `GET\|DELETE /api/rutas/{id}` | Rutas guardadas de la persona (2-10 puntos, modo `foot`, `car` o `sea`; máximo 20) |
 | `GET\|PUT /api/me/memoria` · `POST /api/me/memoria/notas` · `DELETE /api/me/memoria/notas[/{id}]` | Memoria de preferencias del asistente (opt-in, 20 notas × 140 car., caduca a los 12 meses; rechaza datos sensibles o identificadores) |
 | `GET /api/me/datos` | Acceso y portabilidad (RGPD): todo lo que se guarda de la persona en JSON descargable, sin claves de API |
 | `GET /api/oficial?lat=&lon=` | Predicción oficial a 8 días del Meteocat (solo Cataluña; requiere `METEOCAT_API_KEY`; plan de 100 consultas/mes: caché 18 h y topes propios de 90/mes y 5/día) |

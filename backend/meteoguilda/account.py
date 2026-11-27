@@ -204,9 +204,11 @@ async def test(request: Request):
 
 @router.delete("/api/me", status_code=204)
 def delete_me(request: Request):
-    """Borra los ajustes, claves, memoria del asistente y dispositivos de notificaciones de la persona en este servicio."""
+    """Borra los ajustes, claves, memoria del asistente, dispositivos de notificaciones, alertas y rutas guardadas de la persona en este servicio."""
     user = current(request)
-    from . import push
+    from . import alertas, push, rutas_guardadas
     push.borrar_de(user["sub"])          # dispositivos de notificaciones
+    alertas.borrar_de(user["sub"])       # alertas de radio y salidas, sus límites y lo enviado
+    rutas_guardadas.borrar_de(user["sub"])
     with db.pool().connection() as con:
         con.execute("DELETE FROM user_settings WHERE sub=%s", [user["sub"]])   # ajustes, claves y memoria del asistente
