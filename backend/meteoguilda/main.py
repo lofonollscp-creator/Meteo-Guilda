@@ -24,7 +24,7 @@ from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
-from . import push, memoria
+from . import push, memoria, estado as estado_mod
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -1017,6 +1017,13 @@ class RepIn(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
     source: str | None = None
+
+
+@app.get("/api/admin/estado")
+async def admin_estado(x_admin_token: str | None = Header(None)):
+    """Salud de las fuentes y procesos de fondo (APRS, AEMET, Meteocat, verificación, push). Solo agregados."""
+    _admin(x_admin_token)
+    return await asyncio.to_thread(estado_mod.estado)
 
 
 @app.post("/api/admin/repeaters")

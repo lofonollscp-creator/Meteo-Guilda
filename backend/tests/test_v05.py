@@ -137,3 +137,4 @@ def test_herramientas_de_cuenta_exigen_oauth():
         request_context = type("R", (), {"request": type("Q", (), {"headers": {}})()})()
     with pytest.raises(RuntimeError, match="OAuth"):
         asyncio.run(mcp_server.get_my_location(Sin()))
+
