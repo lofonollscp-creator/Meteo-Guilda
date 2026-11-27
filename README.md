@@ -28,7 +28,7 @@ Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [A
 - **Mi ubicación** compartida por Previsión, Radio, asistente y MCP; **mejor momento para** senderismo, ciclismo, dron, colada, estrellas y playa; **aire, UV y polen**; lectura de IA **a petición** (docs/DEPLOY.md §15). Todo por API y MCP: [docs/MAPA-FUNCIONES.md](docs/MAPA-FUNCIONES.md).
 - **Ajustes de la cuenta** (IA sí/no, proveedor y modelo, claves propias cifradas) y **asistente de IA** con datos reales del lugar (docs/DEPLOY.md §12).
 - 8 modelos para contrastar y observaciones de APRS, METAR y XEMA (§13); la lectura de IA llega aparte y no bloquea la página.
-- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (más de 70 herramientas; ficheros grandes por enlace que caduca en una hora y confirmación antes de borrar).
+- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (69 herramientas; ficheros grandes por enlace que caduca en una hora y confirmación antes de borrar).
 - Sincronización opcional con clave secreta (favoritos, QTH y cuaderno entre dispositivos, API y MCP).
 
 ## Desarrollo
