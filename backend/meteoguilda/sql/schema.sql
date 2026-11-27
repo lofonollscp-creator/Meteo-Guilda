@@ -167,3 +167,9 @@ CREATE TABLE IF NOT EXISTS qsl_credenciales (
   estado JSONB NOT NULL DEFAULT '{}'::jsonb, actualizado TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (sub, servicio)
 );
+
+-- Descargas por enlace firmado del MCP (ADIF y respuestas grandes): caducan en 1 h y se borran a las 2 h (ver descargas.py)
+CREATE TABLE IF NOT EXISTS descargas (
+  id BIGSERIAL PRIMARY KEY, sub TEXT, nombre TEXT NOT NULL, tipo TEXT NOT NULL, contenido BYTEA NOT NULL, creada TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS descargas_creada ON descargas (creada);

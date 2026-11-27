@@ -59,6 +59,10 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 
 `GET /api/qsl/servicios` (estado) y `PUT|DELETE /api/qsl/servicios/{servicio}` (credenciales cifradas, **solo con la sesión de la web**) van con la cuenta.
 
+## Descargas por enlace
+`GET /api/descargar/{token}`: fichero que preparó el MCP (ADIF, respuestas grandes). **Público** (sin sesión), pero el token va firmado y caduca en una hora; 404 si es falso o ha caducado.
+`POST /api/descargas` (solo `X-Admin-Token`, uso interno del MCP) guarda el contenido y devuelve `{enlace, nombre_archivo, tipo_mime, tamano, caduca_en_minutos}`.
+
 ## Administración (`X-Admin-Token`)
 `POST /api/admin/repeaters`, `POST /api/admin/repeaters/sync`, `POST /api/admin/repeaters/{id}/coverage`.
 

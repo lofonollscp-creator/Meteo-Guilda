@@ -25,7 +25,7 @@ from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
 from . import push, reglas, memoria, configuracion, uso_ia, estado as estado_mod
-from . import alertas, rutas_guardadas, qsl_servicios
+from . import alertas, descargas, rutas_guardadas, qsl_servicios
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -241,6 +241,7 @@ app.include_router(memoria.router)
 app.include_router(alertas.router)
 app.include_router(rutas_guardadas.router)
 app.include_router(qsl_servicios.router)
+app.include_router(descargas.router)
 
 
 @app.get("/api/cuota")

@@ -29,6 +29,10 @@
 	handle /api/health {
 		reverse_proxy api:8000
 	}
+	# Descargas por enlace firmado que da el MCP (ADIF, respuestas grandes): el token caduca en una hora y solo sirve para ese fichero (ver descargas.py).
+	handle /api/descargar/* {
+		reverse_proxy api:8000
+	}
 	# Servidor MCP: valida su propio token (OAuth o MG_MCP_TOKEN) y anuncia dónde autenticarse.
 	handle /mcp* {
 		reverse_proxy mcp:8001

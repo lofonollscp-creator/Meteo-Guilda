@@ -68,8 +68,8 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Añadir un contacto (avisa de duplicados) | `POST /api/qso` | `logbook_add` |
 | ¿Ya lo he trabajado? | `GET /api/qso/worked` | `logbook_worked` |
 | Editar / marcar QSL | `PATCH /api/qso/{id}` | `logbook_update`, `logbook_mark_qsl` |
-| Borrar un contacto | `DELETE /api/qso/{id}` | `logbook_delete` |
-| Estadísticas, ADIF (importar/exportar) | `GET /api/qso/stats`, `/api/qso/adif`, `POST /api/qso/import` | `logbook_stats`, `logbook_export_adif`, `logbook_import_adif` |
+| Borrar un contacto (la web pregunta; el MCP pide confirmación a la persona por elicitación) | `DELETE /api/qso/{id}` | `logbook_delete` |
+| Estadísticas, ADIF (importar/exportar) | `GET /api/qso/stats`, `/api/qso/adif`, `POST /api/qso/import` | `logbook_stats`, `logbook_export_adif` (enlace de descarga), `logbook_import_adif` |
 | Servicios: estado de LoTW, eQSL y QRZ | `GET /api/qsl/servicios` | `qsl_services_status` (OAuth) |
 | Servicios: «Subir pendientes» | `POST /api/qsl/{servicio}/subir` | `qsl_upload` (OAuth + clave del cuaderno) |
 | Servicios: «Bajar confirmaciones» | `POST /api/qsl/{servicio}/confirmaciones` | `qsl_import_confirmations` (OAuth + clave del cuaderno) |
@@ -82,6 +82,15 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Probar la conexión de IA | `POST /api/me/test` | `test_ai_connection` (OAuth) |
 | Asistente de chat (con el lugar abierto y Mi ubicación) | `POST /api/assistant` (y `/api/assistant/stream` en flujo) | `ask_assistant` (OAuth) |
 | Estado del servicio | `GET /api/health` | `server_status` |
+
+## Cómo responde el MCP a lo grande y a lo que borra
+- **Descargas por enlace**: `logbook_export_adif` no devuelve el ADIF, sino un enlace `https://radio.guildawork.com/api/descargar/<token>` que **caduca en una hora**
+  (se puede abrir varias veces; no pide sesión, pero solo sirve para ese fichero). Las respuestas de más de ~60 KB (`logbook_list`, `get_stations`,
+  `search_repeaters`, `get_repeater` con cobertura, `satellite_passes`, `list_satellites`, `get_forecast_data`, `plan_route`…) llegan igual: enlace a un JSON y un resumen.
+  La API guarda el fichero con `POST /api/descargas` (solo el servicio MCP, con `MG_ADMIN_TOKEN`) y lo borra a las 2 horas. Ver `descargas.py`.
+- **Confirmación antes de borrar**: `logbook_delete` pregunta a la persona con elicitación (SDK 2: `Resolve`/`Elicit`; con clientes del protocolo 2026-07-28 la pregunta
+  viaja como `input_required` y con los anteriores, en mitad de la llamada). Si dice que no, no se borra nada. Si el cliente no admite elicitación, se fía de su
+  propia aprobación (la herramienta va marcada `destructiveHint`).
 
 ## Excepciones (solo web o solo administración)
 - **Guardar o borrar claves de API** (`PUT/DELETE /api/me/key`): no pasan por el MCP para que una clave nunca viaje por un chat de IA.

@@ -8,16 +8,24 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import os
 import sys
 import time
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import httpx
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import AcceptedElicitation, Context, Elicit, ElicitationResult, MCPServer, Resolve
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp_types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 API = os.environ.get("MG_API", "http://127.0.0.1:8000")
+
+
+class ErrorLegible(ToolError, RuntimeError):
+    """Error que el modelo SÍ ve con su texto (el SDK 2 oculta el de las excepciones genéricas tras «Error executing tool …»)."""
 
 mcp = MCPServer(
     "Meteo Guilda / Radio Guilda",
@@ -45,7 +53,7 @@ def client() -> httpx.AsyncClient:
 def _auth(key: str | None) -> dict:
     k = key or os.environ.get("MG_LOGBOOK_KEY")
     if not k:
-        raise RuntimeError("Falta la clave del cuaderno: pásala en `key` o define MG_LOGBOOK_KEY")
+        raise ErrorLegible("Falta la clave del cuaderno: pásala en `key` o define MG_LOGBOOK_KEY")
     return {"Authorization": f"Bearer {k}"}
 
 
@@ -62,7 +70,7 @@ def _who(ctx: Context | None) -> dict | None:
 def _need_who(ctx: Context | None) -> dict:
     w = _who(ctx)
     if not w:
-        raise RuntimeError("Esta herramienta es de tu cuenta: conéctate con el inicio de sesión de Guilda Work (OAuth). La clave fija del MCP no identifica a nadie.")
+        raise ErrorLegible("Esta herramienta es de tu cuenta: conéctate con el inicio de sesión de Guilda Work (OAuth). La clave fija del MCP no identifica a nadie.")
     return w
 
 
@@ -81,10 +89,40 @@ async def _call(method: str, path: str, **kw) -> Any:
             detail = r.json().get("detail", r.text)
         except ValueError:
             detail = r.text
-        raise RuntimeError(f"API {r.status_code}: {detail}")
+        raise ErrorLegible(f"API {r.status_code}: {detail}")
+    if r.status_code == 204 or not r.content:
+        return {}
     if r.headers.get("content-type", "").startswith("application/json"):
         return r.json()
     return {"texto": r.text}
+
+
+# ---------- respuestas grandes por enlace (ver descargas.py) ----------
+UMBRAL_ENLACE = 60_000          # bytes de JSON: por encima, la respuesta va en un fichero por enlace y el modelo recibe un resumen
+
+
+async def _enlace(ctx: Context | None, nombre: str, tipo: str, contenido: str) -> dict:
+    """Guarda el contenido en la API y devuelve el enlace firmado (caduca en una hora)."""
+    w = _who(ctx) if ctx is not None else None
+    return await _call("POST", "/api/descargas", headers={"X-Admin-Token": os.environ.get("MG_ADMIN_TOKEN", "")},
+                       json={"nombre": nombre, "tipo": tipo, "contenido": contenido, "sub": (w or {}).get("sub")})
+
+
+def _resumen(datos: Any) -> dict:
+    if isinstance(datos, list):
+        return {"elementos": len(datos), "primeros": datos[:5]}
+    if isinstance(datos, dict):
+        return {k: (f"{len(v)} elementos (en el fichero)" if isinstance(v, (list, dict)) and len(json.dumps(v, default=str)) > 2000 else v) for k, v in datos.items()}
+    return {}
+
+
+async def _quiza_enlace(ctx: Context | None, nombre: str, datos: Any) -> Any:
+    """Si la respuesta es grande, la deja en un fichero JSON por enlace y devuelve un resumen; si no, la devuelve tal cual."""
+    texto = json.dumps(datos, ensure_ascii=False, default=str)
+    if len(texto.encode()) <= UMBRAL_ENLACE:
+        return datos
+    return {"respuesta_grande": True, "descarga": await _enlace(ctx, f"{nombre}.json", "application/json", texto), "resumen": _resumen(datos),
+            "nota": "La respuesta completa es grande: está en el fichero del enlace (JSON). Aquí va un resumen; acota la consulta para recibirla entera."}
 
 
 @mcp.tool()
@@ -101,11 +139,11 @@ async def search_place(query: str) -> list[dict]:
 
 
 @mcp.tool()
-async def get_forecast_data(lat: float, lon: float) -> dict:
+async def get_forecast_data(lat: float, lon: float, ctx: Context = None) -> dict:
     """Datos previstos crudos en tramos de 3 h hasta 5 días: temperatura, lluvia, nieve, viento y rachas (km/h),
     dirección, nubes, humedad, presión, CAPE, isocero, con rango entre modelos y confianza, más balizas APRS
-    cercanas. Sin texto de IA: interprétalos tú."""
-    return await _call("GET", "/api/raw", params={"lat": lat, "lon": lon})
+    cercanas. Sin texto de IA: interprétalos tú. Si la respuesta es muy grande, llega como enlace de descarga (JSON) con un resumen."""
+    return await _quiza_enlace(ctx, "prevision", await _call("GET", "/api/raw", params={"lat": lat, "lon": lon}))
 
 
 @mcp.tool()
@@ -114,7 +152,7 @@ async def get_forecast_by_name(place_name: str) -> dict:
     (como get_forecast_data) junto al lugar elegido y las demás coincidencias, por si hay homónimos. Evita encadenar search_place y get_forecast_data."""
     hits = await _call("GET", "/api/search", params={"q": place_name})
     if not hits:
-        raise RuntimeError(f"No he encontrado ningún lugar llamado «{place_name}»")
+        raise ErrorLegible(f"No he encontrado ningún lugar llamado «{place_name}»")
     h = hits[0]
     return {"lugar": h, "otras_coincidencias": hits[1:4], "datos": await _call("GET", "/api/raw", params={"lat": h["lat"], "lon": h["lon"]})}
 
@@ -138,7 +176,7 @@ async def get_nearby_observations(lat: float, lon: float, radius_km: float = 40)
 
 @mcp.tool()
 async def plan_route(waypoints: list[dict], mode: Literal["foot", "car"] = "foot", depart_iso: str | None = None,
-                     with_ai_reading: bool = False) -> dict:
+                     with_ai_reading: bool = False, ctx: Context = None) -> dict:
     """Planifica una ruta a pie o en coche y evalúa la meteo a la hora de paso en cada punto.
     `waypoints`: lista de {"lat":…, "lon":…} (mínimo 2). `depart_iso`: salida en ISO 8601 con zona (máx. 72 h).
     Devuelve distancia, duración, desnivel, nivel de riesgo (0-2) por tramo con motivos, mejores ventanas
@@ -146,7 +184,7 @@ async def plan_route(waypoints: list[dict], mode: Literal["foot", "car"] = "foot
     body = {"waypoints": waypoints, "mode": mode, "depart": depart_iso, "ia": with_ai_reading}
     res = await _call("POST", "/api/route", json=body)
     res.pop("geometria", None)  # pesada; el modelo no la necesita
-    return res
+    return await _quiza_enlace(ctx, "ruta", res)
 
 
 @mcp.tool()
@@ -177,21 +215,21 @@ async def maidenhead(lat: float | None = None, lon: float | None = None, locator
 
 @mcp.tool()
 async def search_repeaters(query: str | None = None, lat: float | None = None, lon: float | None = None, radius_km: float = 60,
-                           mode: Literal["FM", "DMR", "D-STAR", "C4FM"] | None = None, band: str | None = None, limit: int = 40) -> list[dict]:
+                           mode: Literal["FM", "DMR", "D-STAR", "C4FM"] | None = None, band: str | None = None, limit: int = 40, ctx: Context = None) -> Any:
     """Busca repetidores: por texto (indicativo o ciudad) o por cercanía (lat+lon+radius_km). Filtra por modo (FM, DMR, D-STAR,
     C4FM) y banda (2m, 70cm...). Datos de BrandMeister y listados abiertos (HearHam); incluye color code, subtono y desplazamiento."""
     if lat is not None and lon is not None:
-        return await _call("GET", "/api/repeaters/near", params={"lat": lat, "lon": lon, "km": radius_km, "mode": mode, "band": band, "limit": limit})
-    return await _call("GET", "/api/repeaters", params={"q": query, "mode": mode, "band": band, "limit": limit})
+        return await _quiza_enlace(ctx, "repetidores", await _call("GET", "/api/repeaters/near", params={"lat": lat, "lon": lon, "km": radius_km, "mode": mode, "band": band, "limit": limit}))
+    return await _quiza_enlace(ctx, "repetidores", await _call("GET", "/api/repeaters", params={"q": query, "mode": mode, "band": band, "limit": limit}))
 
 
 @mcp.tool()
-async def get_repeater(repeater_id: int, compute_coverage: bool = False) -> dict:
+async def get_repeater(repeater_id: int, compute_coverage: bool = False, ctx: Context = None) -> dict:
     """Ficha completa de un repetidor. Con compute_coverage=True calcula y guarda su cobertura estimada por línea de vista
     (tarda unos segundos) y devuelve el polígono GeoJSON."""
     if compute_coverage:
-        return await _call("POST", f"/api/repeaters/{repeater_id}/coverage")
-    return await _call("GET", f"/api/repeaters/{repeater_id}")
+        return await _quiza_enlace(ctx, f"repetidor-{repeater_id}", await _call("POST", f"/api/repeaters/{repeater_id}/coverage"))
+    return await _quiza_enlace(ctx, f"repetidor-{repeater_id}", await _call("GET", f"/api/repeaters/{repeater_id}"))
 
 
 @mcp.tool()
@@ -201,13 +239,13 @@ async def repeater_stats() -> dict:
 
 
 @mcp.tool()
-async def satellite_passes(lat: float, lon: float, hours: float = 24, min_elevation: float = 10, norad_ids: list[int] | None = None) -> dict:
+async def satellite_passes(lat: float, lon: float, hours: float = 24, min_elevation: float = 10, norad_ids: list[int] | None = None, ctx: Context = None) -> dict:
     """Próximos pasos de satélites de aficionados (ISS, SO-50, RS-44, AO-7...) sobre un punto: AOS/LOS (UTC), elevación máxima,
     azimuts y traza para dibujar el cielo. Sin norad_ids usa los más habituales."""
     params = {"lat": lat, "lon": lon, "hours": hours, "min_el": min_elevation}
     if norad_ids:
         params["sats"] = ",".join(map(str, norad_ids))
-    return await _call("GET", "/api/satellites/passes", params=params)
+    return await _quiza_enlace(ctx, "pasos-satelites", await _call("GET", "/api/satellites/passes", params=params))
 
 
 @mcp.tool()
@@ -238,9 +276,9 @@ async def radio_operating_windows(lat: float, lon: float, mode: str = "fijo") ->
 
 
 @mcp.tool()
-async def get_stations(south: float, west: float, north: float, east: float, max_age_min: int = 120) -> list[dict]:
-    """Estaciones meteo APRS en un recuadro (con calidad: ok/range/outlier)."""
-    return await _call("GET", "/api/stations", params={"south": south, "west": west, "north": north, "east": east, "max_age_min": max_age_min})
+async def get_stations(south: float, west: float, north: float, east: float, max_age_min: int = 120, ctx: Context = None) -> Any:
+    """Estaciones meteo APRS en un recuadro (con calidad: ok/range/outlier). Si son muchas, llegan como enlace de descarga (JSON) con un resumen."""
+    return await _quiza_enlace(ctx, "estaciones", await _call("GET", "/api/stations", params={"south": south, "west": west, "north": north, "east": east, "max_age_min": max_age_min}))
 
 
 @mcp.tool()
@@ -251,9 +289,10 @@ async def logbook_create_profile() -> dict:
 
 @mcp.tool()
 async def logbook_list(key: str | None = None, query: str | None = None, band: str | None = None, mode: str | None = None,
-                       status: Literal["pending", "confirmed"] | None = None, limit: int = 50) -> list[dict]:
-    """Lista contactos del cuaderno (QSO), con filtros. `status`: pending = sin QSL recibida, confirmed = con QSL recibida."""
-    return await _call("GET", "/api/qso", headers=_auth(key), params={"q": query, "band": band, "mode": mode, "status": status, "limit": limit})
+                       status: Literal["pending", "confirmed"] | None = None, limit: int = 50, ctx: Context = None) -> Any:
+    """Lista contactos del cuaderno (QSO), con filtros. `status`: pending = sin QSL recibida, confirmed = con QSL recibida.
+    Si la lista es muy grande, llega como enlace de descarga (JSON) con los primeros contactos."""
+    return await _quiza_enlace(ctx, "contactos", await _call("GET", "/api/qso", headers=_auth(key), params={"q": query, "band": band, "mode": mode, "status": status, "limit": limit}))
 
 
 @mcp.tool()
@@ -280,9 +319,10 @@ async def logbook_stats(key: str | None = None) -> dict:
 
 
 @mcp.tool()
-async def logbook_export_adif(key: str | None = None) -> dict:
-    """Exporta el cuaderno en formato ADIF (texto)."""
-    return await _call("GET", "/api/qso/adif", headers=_auth(key))
+async def logbook_export_adif(key: str | None = None, ctx: Context = None) -> dict:
+    """Exporta el cuaderno en formato ADIF como ENLACE DE DESCARGA (caduca en una hora): no devuelve el contenido. Enséñale el enlace a la persona."""
+    adif = (await _call("GET", "/api/qso/adif", headers=_auth(key)))["texto"]
+    return {**await _enlace(ctx, "radioguilda.adi", "text/plain; charset=utf-8", adif), "contactos": adif.upper().count("<EOR>")}
 
 
 @mcp.tool()
@@ -351,7 +391,7 @@ async def set_my_location(ctx: Context, lat: float | None = None, lon: float | N
     """Guarda (lat+lon, name opcional) o borra (`clear=true`) tu ubicación. La usan el asistente y get_forecast_here. Requiere OAuth."""
     body = {"home": None} if clear else {"home": {"lat": lat, "lon": lon, "name": name}}
     if not clear and (lat is None or lon is None):
-        raise RuntimeError("Indica lat y lon, o clear=true para borrarla")
+        raise ErrorLegible("Indica lat y lon, o clear=true para borrarla")
     s = await _as(_need_who(ctx), "PUT", "/api/me/settings", json=body)
     return {"home": s.get("home")}
 
@@ -362,7 +402,7 @@ async def get_forecast_here(ctx: Context, with_air: bool = False) -> dict:
     w = _need_who(ctx)
     home = (await _as(w, "GET", "/api/me/settings")).get("home")
     if not home:
-        raise RuntimeError("No tienes ubicación guardada: usa set_my_location o el botón «Mi ubicación» de la web")
+        raise ErrorLegible("No tienes ubicación guardada: usa set_my_location o el botón «Mi ubicación» de la web")
     out = {"ubicacion": home, "pronostico": await _call("GET", "/api/raw", params={"lat": home["lat"], "lon": home["lon"]})}
     if with_air:
         out["aire"] = await _call("GET", "/api/air", params={"lat": home["lat"], "lon": home["lon"]})
@@ -406,9 +446,9 @@ async def server_status() -> dict:
 
 
 @mcp.tool()
-async def list_satellites() -> list[dict]:
+async def list_satellites(ctx: Context = None) -> Any:
     """Satélites de aficionados y de interés (ISS, etc.) con su identificador NORAD, para pasar a satellite_passes."""
-    return await _call("GET", "/api/satellites")
+    return await _quiza_enlace(ctx, "satelites", await _call("GET", "/api/satellites"))
 
 
 @mcp.tool()
@@ -443,9 +483,39 @@ async def logbook_update(qso_id: int, notes: str | None = None, name: str | None
     return await _call("PATCH", f"/api/qso/{qso_id}", headers=_auth(key), json=body)
 
 
-@mcp.tool()
-async def logbook_delete(qso_id: int, key: str | None = None) -> dict:
-    """Borra un contacto del cuaderno (no se puede deshacer)."""
+class _Confirmacion(BaseModel):
+    confirmar: bool = Field(description="Marca la casilla para confirmar el borrado.")
+
+
+async def _confirmar_borrado(ctx: Context, qso_id: int, key: str | None = None):
+    """Pregunta a la PERSONA (elicitación) antes de borrar. Con clientes del protocolo 2026-07-28 la pregunta viaja en la respuesta
+    (`input_required`) y el cliente repite la llamada; con los anteriores, como petición del servidor en mitad de la llamada (lo hace el SDK 2).
+    Si el cliente no sabe preguntar, se fía de su propia aprobación (la herramienta lleva destructiveHint)."""
+    cap = ctx.client_capabilities
+    el = cap.elicitation if cap is not None else None
+    if el is None or (el.form is None and el.url is not None):
+        return _Confirmacion(confirmar=True)
+    que = f"el contacto {qso_id}"
+    try:
+        for q in await _call("GET", "/api/qso", headers=_auth(key), params={"limit": 1000}):
+            if q.get("id") == qso_id:
+                que = f"el contacto con {q['call']} del {str(q['qso_at'])[:16].replace('T', ' ')} UTC ({q.get('band') or '¿banda?'}, {q.get('mode') or '¿modo?'})"
+                break
+    except Exception:  # noqa: BLE001  (si no se puede leer, se pregunta igual con el número)
+        pass
+    return Elicit(f"Radio Guilda va a borrar del cuaderno {que}. No se puede deshacer. ¿Lo confirmas?", _Confirmacion)
+
+
+_confirmar_borrado.__annotations__ = {"ctx": Context, "qso_id": int, "key": str | None}
+
+
+@mcp.tool(annotations=ToolAnnotations(destructive_hint=True, idempotent_hint=True, read_only_hint=False))
+async def logbook_delete(qso_id: int, key: str | None = None,
+                         confirmacion: Annotated[ElicitationResult[_Confirmacion], Resolve(_confirmar_borrado)] = None) -> dict:
+    """Borra un contacto del cuaderno (no se puede deshacer). Antes pide confirmación a la persona si el cliente lo admite."""
+    datos = confirmacion.data if isinstance(confirmacion, AcceptedElicitation) else confirmacion
+    if not isinstance(datos, _Confirmacion) or not datos.confirmar:
+        raise ErrorLegible("No se ha borrado nada: la persona no lo ha confirmado.")
     await _call("DELETE", f"/api/qso/{qso_id}", headers=_auth(key))
     return {"borrado": qso_id}
 

@@ -2,7 +2,8 @@
 
 El Caddy interno consulta /api/auth/check (forward_auth) antes de servir la web estática y /api/*; esta ruta mira la cookie de sesión.
 Sin sesión: una navegación del navegador se redirige a /api/auth/login (→ Hydra → /api/auth/callback → sesión de 30 días) y el resto
-de peticiones (fetch de la app) reciben 401. Públicas: /api/auth/*, /api/oauth/*, /.well-known/oauth-*, /api/health y /mcp (este valida su propio token).
+de peticiones (fetch de la app) reciben 401. Públicas: /api/auth/*, /api/oauth/*, /.well-known/oauth-*, /api/health, /api/descargar/* (enlace firmado)
+y /mcp (este valida su propio token).
 El MCP y la API interna (red de Docker) no pasan por esta puerta.
 """
 from __future__ import annotations
