@@ -182,3 +182,19 @@ def test_flujo_sse_avisa_de_las_herramientas_y_termina_con_la_respuesta(cli, mon
     evs = [_j.loads(x[6:]) for x in r.text.split("\n\n") if x.startswith("data: ")]
     assert [e["t"] for e in evs] == ["herr", "fin"] and evs[0]["items"][0]["nombre"] == "guardar_lugar"
     assert evs[1]["answer"] == "Listo." and evs[1]["tarjetas"][0]["accion"] == "favorito"
+
+
+def test_prediccion_oficial_sin_clave_se_lo_dice_al_modelo(cli, monkeypatch):  # noqa: F811
+    """Sin clave del Meteocat la herramienta no falla: devuelve «no disponible» con una nota para el modelo."""
+    monkeypatch.delenv("METEOCAT_API_KEY", raising=False)
+    vistos = []
+
+    async def comp(http, cfg, system, messages, **k):
+        vistos.append(messages)
+        if len(messages) == 1:
+            return '<tool>{"name":"prediccion_oficial","args":{"lugar":"Vielha"}}</tool>'
+        return "No hay predicción oficial."
+    monkeypatch.setattr(ai, "complete", comp)
+    d = cli.post("/api/assistant", json={"messages": [{"role": "user", "content": "¿qué dice el Meteocat de Vielha?"}]}).json()
+    assert d["herramientas"][0]["nombre"] == "prediccion_oficial" and d["herramientas"][0]["etiqueta"] == "Predicción oficial (Meteocat)"
+    assert "usa la de los modelos" in vistos[1][-1]["content"]

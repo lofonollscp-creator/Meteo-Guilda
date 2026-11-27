@@ -91,15 +91,32 @@ async def verificar(http: httpx.AsyncClient, ahora: datetime | None = None) -> i
     return hechas
 
 
-def precision(lugar: str, dias: int = 30, lead_h: int = 24) -> list[dict]:
+def precision(lugar: str, dias: int = 30, lead_h: int = 24, min_n: int = MIN_N) -> list[dict]:
     """MAE (°C) y sesgo (previsto − medido) de cada modelo en el lugar, de mejor a peor; solo modelos con MIN_N comparaciones."""
     try:
         with pool().connection() as con:
             rows = con.execute("SELECT modelo, count(*) AS n, avg(abs(pred_c - obs_c)) AS mae, avg(pred_c - obs_c) AS sesgo FROM verif_pred "
                                "WHERE lugar = %s AND lead_h = %s AND obs_c IS NOT NULL AND valida > now() - make_interval(days => %s) "
-                               "GROUP BY modelo HAVING count(*) >= %s ORDER BY avg(abs(pred_c - obs_c))", [lugar, lead_h, dias, MIN_N]).fetchall()
+                               "GROUP BY modelo HAVING count(*) >= %s ORDER BY avg(abs(pred_c - obs_c))", [lugar, lead_h, dias, min_n]).fetchall()
     except Exception as e:  # noqa: BLE001
         log.warning("verif.precision: %s", e)
         return []
     return [{"modelo": r["modelo"], "etiqueta": openmeteo.MODEL_LABELS.get(r["modelo"], r["modelo"]), "n": r["n"], "mae_c": round(r["mae"], 2),
              "sesgo_c": round(r["sesgo"], 2)} for r in rows]
+
+
+MIN_N_PESOS = 24                       # comparaciones por modelo antes de dejar que el historial mueva la media (≈ 6 días a 4 registros/día)
+
+
+def pesos(lugar: str) -> dict[str, float] | None:
+    """Pesos por modelo para la media de temperatura de un lugar principal, o None (media simple).
+    Solo con MG_PONDERAR=1 y al menos 3 modelos con MIN_N_PESOS comparaciones a 24 h. Peso = (MAE medio / MAE del modelo)², acotado a 0,5–2,
+    para que ningún modelo mande ni desaparezca; el sesgo no se corrige."""
+    import os
+    if os.environ.get("MG_PONDERAR") != "1":
+        return None
+    p = precision(lugar, 30, 24, MIN_N_PESOS)
+    if len(p) < 3:
+        return None
+    media = statistics.fmean(max(x["mae_c"], 0.1) for x in p)
+    return {x["modelo"]: round(min(2.0, max(0.5, (media / max(x["mae_c"], 0.1)) ** 2)), 3) for x in p}

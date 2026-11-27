@@ -68,8 +68,9 @@ async def get_summary(http: httpx.AsyncClient, lat: float, lon: float, force: bo
             return hit[1]
         try:
             raw = await openmeteo.fetch(lat, lon, client=http)
-            summary = openmeteo.summarize(raw)
-            if (slug := verif.lugar_de(lat, lon)):                  # lugares principales: guarda lo previsto para verificarlo luego (ver verif.py)
+            slug = verif.lugar_de(lat, lon)
+            summary = openmeteo.summarize(raw, pesos=await asyncio.to_thread(verif.pesos, slug) if slug else None)
+            if slug:                  # lugares principales: guarda lo previsto para verificarlo luego (ver verif.py)
                 await asyncio.to_thread(verif.registrar, raw, slug)
         except httpx.HTTPError:
             if hit:   # la fuente limita o falla: mejor datos de hace unas horas que un error

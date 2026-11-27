@@ -153,3 +153,7 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 ## Comprobaciones de interfaz (e2e)
 
 `./e2e/correr.sh` levanta el stack de QA (puerto 8099, base de datos desechable), pasa `ancho.mjs` (la cabecera no se solapa de 320 a 1024 px), `a11y.mjs` (nombres accesibles, tamaños táctiles, ids duplicados, ARIA, desbordes y errores de JS en 12 pantallas, el chat y el modo Live) y `offline.mjs` (la app carga sin red con la última previsión y el aviso), y lo apaga al terminar. Sale con error si algo falla. Necesita Docker; la imagen `mg-e2e` se construye sola la primera vez.
+
+- **Media ponderada** (`MG_PONDERAR=1` en `.env`, apagada por defecto): la media de temperatura de los lugares principales pesa más a los modelos que mejor aciertan allí (peso = (MAE medio / MAE)², entre 0,5 y 2). Solo actúa con al menos 3 modelos con 24 comparaciones a 24 h en 30 días; si no, media simple. Para activarla: poner `MG_PONDERAR=1` y reiniciar la API.
+- **CI**: `.github/workflows/tests.yml` pasa los tests (Postgres/PostGIS de servicio) en cada subida a GitHub.
+- **Asistente**: la herramienta `prediccion_oficial` consulta el Meteocat respetando la caché de 18 h y los topes de cuota (5/día, 90/mes).

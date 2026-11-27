@@ -30,6 +30,7 @@ CATALOGO: dict[str, tuple[str, str]] = {
     "buscar_lugar": ("Busca pueblos, ciudades o parajes por nombre y devuelve coordenadas.", "consulta"),
     "prevision": ("Previsión de modelos (hasta 5 días, medias y confianza) de un lugar.", "lugar"),
     "avisos": ("Avisos oficiales vigentes (AEMET) en un lugar.", "lugar"),
+    "prediccion_oficial": ("Predicción oficial del Meteocat a 8 días (solo municipios de Cataluña; úsala para contrastar con los modelos, no en cada respuesta: la cuota es limitada).", "lugar"),
     "aire": ("Calidad del aire, UV y polen.", "lugar"),
     "mar": ("Estado del mar: oleaje, periodo, agua (costa).", "lugar"),
     "comparar": ("Compara 2-4 lugares (cifras de 48 h y veredicto).", "lugares (lista de nombres)"),
@@ -300,6 +301,10 @@ async def ejecutar(env: Entorno, nombre: str, a: dict) -> dict:
             out["tarjeta"] = tarjeta_prevision(p, d["datos"])
         elif nombre == "avisos":
             r = await _api(env, "GET", "/api/avisos", params=c)
+        elif nombre == "prediccion_oficial":
+            r = await _api(env, "GET", "/api/oficial", params=c)
+            if not r.get("disponible"):
+                r = {"disponible": False, "motivo": r.get("motivo"), "nota": "Sin predicción oficial del Meteocat aquí (fuera de Cataluña, sin cuota o sin servicio); usa la de los modelos y dilo."}
         elif nombre == "aire":
             r = await _api(env, "GET", "/api/air", params=c)
         elif nombre == "mar":
@@ -367,7 +372,7 @@ def respuesta_para_modelo(llamadas: list[dict], res: list[dict], ultima: bool) -
     return "Resultados de las herramientas:\n" + "\n".join(partes) + "\n\n" + fin
 
 
-ETIQUETAS = {"buscar_lugar": "Búsqueda de lugar", "prevision": "Previsión de modelos", "avisos": "Avisos oficiales", "aire": "Calidad del aire",
+ETIQUETAS = {"buscar_lugar": "Búsqueda de lugar", "prevision": "Previsión de modelos", "avisos": "Avisos oficiales", "prediccion_oficial": "Predicción oficial (Meteocat)", "aire": "Calidad del aire",
              "mar": "Estado del mar", "comparar": "Comparación", "actividad": "Ventanas de actividad", "ruta": "Ruta con meteo",
              "observaciones": "Estaciones cercanas", "propagacion": "Propagación VHF", "condiciones_hf": "Condiciones HF", "repetidores": "Repetidores",
              "satelites": "Pasos de satélite", "astro": "Sol y luna", "portatil": "Operación portátil", "ventanas_radio": "Ventanas de radio",

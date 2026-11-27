@@ -137,8 +137,9 @@ def hourly_consensus(data: dict, now: datetime | None = None) -> dict:
     return out
 
 
-def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | None = None) -> dict:
-    """Tramos de `step_h` h desde ahora: media entre modelos, rango y confianza."""
+def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | None = None, pesos: dict[str, float] | None = None) -> dict:
+    """Tramos de `step_h` h desde ahora: media entre modelos, rango y confianza.
+    `pesos` (modelo → peso, opcional): la media de la TEMPERATURA pasa a ser ponderada por el acierto histórico local (ver verif.pesos); sin él, media simple."""
     k0 = _start_index(data, now)
     h = {k: v[k0:] for k, v in data["hourly"].items()}
     times = h["time"]
@@ -151,10 +152,12 @@ def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | 
         confs = []
         for var, cols in series.items():
             per_model = []
-            for c in cols:
+            nombres = []
+            for (m, _), c in zip(named[var], cols):
                 chunk = [x for x in c[i:i + step_h] if x is not None]
                 if chunk:
                     per_model.append(chunk)
+                    nombres.append(m)
             if not per_model:
                 continue
             if var == "wind_direction_10m":
@@ -169,6 +172,10 @@ def summarize(data: dict, step_h: int = 3, max_steps: int = 40, now: datetime | 
             spread = max(vals) - min(vals)
             row[var] = {"mean": round(statistics.fmean(vals), 1), "min": round(min(vals), 1),
                         "max": round(max(vals), 1)}
+            if pesos and var == "temperature_2m":
+                w = [pesos.get(m, 1.0) for m in nombres]
+                row[var]["mean"] = round(sum(v * x for v, x in zip(vals, w)) / sum(w), 1)
+                row[var]["ponderada"] = True
             if var in CONF_VARS:
                 confs.append(_confidence(var, spread, len(vals)))
         for var, per in detail.items():

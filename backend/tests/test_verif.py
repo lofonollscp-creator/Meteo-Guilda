@@ -68,3 +68,37 @@ def test_precision_ordena_por_error_y_exige_minimo(pg):
     assert r[0]["mae_c"] == 0.5 and r[0]["sesgo_c"] == 0.5 and r[1]["mae_c"] == 2.0 and r[0]["n"] == 10
     assert r[0]["etiqueta"] == "DWD ICON"
     _limpia()
+
+
+def _siembra(maes: dict[str, float], n: int):
+    """n comparaciones a 24 h por modelo, con ese error absoluto."""
+    _limpia()
+    ahora = datetime.now(UTC)
+    with db.pool().connection() as con:
+        for m, mae in maes.items():
+            for i in range(n):
+                con.execute("INSERT INTO verif_pred (lugar, modelo, lead_h, valida, pred_c, obs_c) VALUES (%s, %s, 24, %s, %s, %s)",
+                            [SLUG, m, ahora - timedelta(hours=6 * (i + 1)), 10.0 + mae, 10.0])
+
+
+def test_pesos_apagados_por_defecto_y_exigen_historial(pg, monkeypatch):
+    _siembra({"icon_seamless": 0.5, "gfs_seamless": 2.0, "ecmwf_ifs025": 1.0}, 30)
+    monkeypatch.delenv("MG_PONDERAR", raising=False)
+    assert verif.pesos(SLUG) is None                                   # sin activar, media simple
+    monkeypatch.setenv("MG_PONDERAR", "1")
+    w = verif.pesos(SLUG)
+    assert w["icon_seamless"] == 2.0 and w["gfs_seamless"] == 0.5 and 0.5 < w["ecmwf_ifs025"] < 2.0   # acotados a 0,5–2
+    _siembra({"icon_seamless": 0.5, "gfs_seamless": 2.0, "ecmwf_ifs025": 1.0}, 10)
+    assert verif.pesos(SLUG) is None                                   # pocas comparaciones: no se mueve nada
+    _limpia()
+
+
+def test_media_ponderada_de_temperatura():
+    from meteoguilda import openmeteo
+    d = _raw()
+    now = datetime(2026, 11, 25, 23, 0, tzinfo=UTC)
+    simple = openmeteo.summarize(d, now=now)["steps"][0]["temperature_2m"]
+    pond = openmeteo.summarize(d, now=now, pesos={"icon_seamless": 2.0, "gfs_seamless": 0.5})["steps"][0]["temperature_2m"]
+    assert "ponderada" not in simple and pond["ponderada"] is True
+    assert pond["mean"] > simple["mean"]                              # icon (más cálido) pesa más
+    assert pond["min"] == simple["min"] and pond["max"] == simple["max"]
