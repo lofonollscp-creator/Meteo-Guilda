@@ -37,3 +37,12 @@ def test_qc_range_and_outlier():
     assert flags["C"] == "outlier" and flags["A0"] == "ok"
     impossible = parse_packet("D>APRS:@092345z4303.50N/00541.75W_220/004g005t-90h50b10132")
     assert impossible is not None and not range_ok(impossible)
+
+
+def test_filtro_ignora_comentarios_en_la_misma_linea_del_env():
+    """Regresión: `MG_APRS_FILTER=   # vacío…` en el .env llegaba como filtro y APRS-IS no enviaba nada."""
+    from meteoguilda import ingest
+    por_defecto = ingest.filtro(None)
+    assert por_defecto.startswith("r/") and ingest.filtro("# vacío = círculos de 60 km") == por_defecto
+    assert ingest.filtro("   ") == por_defecto
+    assert ingest.filtro("r/41.5/2.3/20  # solo Premià") == "r/41.5/2.3/20"

@@ -21,8 +21,16 @@ PORT = int(os.environ.get("MG_APRS_PORT", "14580"))
 # Los filtros APRS-IS se combinan con OR: "t/w" traería TODOS los paquetes meteo del mundo.
 # Por eso se pide solo un círculo por lugar (todo tipo de paquete) y se filtra el meteo localmente.
 RADIUS_KM = int(os.environ.get("MG_APRS_RADIUS", "60"))
-FILTER = os.environ.get("MG_APRS_FILTER") or " ".join(
-    f"r/{p.lat:.3f}/{p.lon:.3f}/{RADIUS_KM}" for p in PLACES)
+
+
+def filtro(valor: str | None) -> str:
+    """Filtro APRS-IS a usar. Docker (`env_file`) deja los comentarios al final de la línea dentro del valor
+    (`MG_APRS_FILTER=   # vacío = …` llegaba como filtro «# vacío = …» y el servidor no mandaba nada), así que se corta en el primer «#»."""
+    limpio = (valor or "").split("#", 1)[0].strip()
+    return limpio or " ".join(f"r/{p.lat:.3f}/{p.lon:.3f}/{RADIUS_KM}" for p in PLACES)
+
+
+FILTER = filtro(os.environ.get("MG_APRS_FILTER"))
 
 
 def run() -> None:
