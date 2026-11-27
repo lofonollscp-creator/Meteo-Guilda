@@ -1,0 +1,8 @@
+[Unit]
+Description=Copia de la base de datos de Meteo-Guilda (pg_dump)
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=MG_BACKUPS_DIR=/mnt/HC_Volume_106540289/meteo-guilda-backups
+ExecStart=/home/guilda/meteo-guilda/scripts/backup_db.sh

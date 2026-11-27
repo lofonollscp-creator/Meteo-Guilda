@@ -1,0 +1,10 @@
+[Unit]
+Description=Copia nocturna de la base de datos de Meteo-Guilda
+
+[Timer]
+OnCalendar=*-*-* 02:40:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

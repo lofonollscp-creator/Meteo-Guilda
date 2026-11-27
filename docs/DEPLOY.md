@@ -157,3 +157,15 @@ que rota) y la persona se identifica con su cuenta de Guilda Work a través del 
 - **Media ponderada** (`MG_PONDERAR=1` en `.env`, apagada por defecto): la media de temperatura de los lugares principales pesa más a los modelos que mejor aciertan allí (peso = (MAE medio / MAE)², entre 0,5 y 2). Solo actúa con al menos 3 modelos con 24 comparaciones a 24 h en 30 días; si no, media simple. Para activarla: poner `MG_PONDERAR=1` y reiniciar la API.
 - **CI**: `.github/workflows/tests.yml` pasa los tests (Postgres/PostGIS de servicio) en cada subida a GitHub.
 - **Asistente**: la herramienta `prediccion_oficial` consulta el Meteocat respetando la caché de 18 h y los topes de cuota (5/día, 90/mes).
+
+## Copia de seguridad de la base de datos
+
+La base (volumen `pgdata`: verificación de modelos, dispositivos push, cachés y cuentas) se copia con `scripts/backup_db.sh` (pg_dump, 14 copias, carpeta 700).
+
+```bash
+MG_BACKUPS_DIR=/mnt/HC_Volume_106540289/meteo-guilda-backups ./scripts/backup_db.sh           # hacer una copia
+MG_BACKUPS_DIR=/mnt/HC_Volume_106540289/meteo-guilda-backups ./scripts/backup_db.sh --probar  # restaurarla en una base temporal y comprobar tablas
+```
+
+Para que sea automática: copiar `deploy/systemd/meteo-guilda-backup.{service,timer}` a `/etc/systemd/system/` y `systemctl enable --now meteo-guilda-backup.timer`.
+Para sacarla del servidor, añadir `$MG_BACKUPS_DIR` a las rutas de `scripts/backup_restic.sh` de Guilda Work (cifra con Restic; las copias no van cifradas).
