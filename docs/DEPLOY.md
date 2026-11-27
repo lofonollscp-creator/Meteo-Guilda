@@ -73,13 +73,26 @@ cd /home/guilda/meteo-guilda && ./desplegar_produccion.sh
 ```
 | Opción | Qué hace |
 |---|---|
-| *(ninguna)* | `git pull --ff-only`, crea el cliente de Hydra si falta, `docker compose up -d --build`, verifica |
+| *(ninguna)* | `git pull --ff-only`, crea el cliente de Hydra si falta, construye y **prueba** la imagen nueva, la pone en marcha y verifica |
 | `--probar` | antes de desplegar pasa los tests en una copia aislada con una PostGIS desechable; si fallan, no despliega |
 | `--sin-pull` | despliega lo que haya en el directorio (cambios locales o commits todavía sin subir a GitHub) |
 | `--solo-verificar` | no cambia nada: comprueba salud, contenedores, web, OAuth, MCP, repetidores y HTTPS público |
+| `--volver-atras` | vuelve a las imágenes del despliegue anterior (etiqueta `:anterior`) y verifica |
 
 Se detiene (sin tocar nada) si falta `.env`, si hay cambios sin commitear, si el repositorio local y GitHub han divergido o si los tests fallan.
-Al final imprime el commit desplegado y el anterior, con la orden para volver atrás. Reinicia el Caddy interno solo cuando cambia `deploy/Caddyfile`
+
+**Despliegue seguro (nov-2026).** La imagen que funciona nunca se sustituye a ciegas:
+1. Antes de construir, las imágenes en marcha (`meteo-guilda-api`, `-aprs`, `-mcp`) se etiquetan como `:anterior`. `docker compose build` construye las
+   nuevas **sin tocar los contenedores** (si la construcción falla, se para y sigue la anterior).
+2. La imagen nueva se arranca **aparte** (`mg-prueba-despliegue`, en la red de la pila, con el `.env`, sin procesos de fondo: `MG_PREGEN=0`) y tiene que
+   responder `/api/health` con la base de datos en menos de un minuto; además, el MCP y el ingestor tienen que poder importarse. Si algo falla, enseña el
+   final del registro, devuelve la etiqueta `:latest` a la imagen anterior y **no sustituye nada**.
+3. Solo entonces `docker compose up -d --no-build`. Si la pila nueva no responde en 2 minutos, **vuelve sola** a las imágenes `:anterior` y lo dice.
+4. Para volver atrás a mano más tarde: `./desplegar_produccion.sh --volver-atras` (las imágenes; el código, con `git reset --hard <commit>`).
+
+Ojo: la prueba aparte arranca la API contra la base real, así que aplica el esquema nuevo (`schema.sql` solo hace cambios aditivos: `CREATE … IF NOT EXISTS`
+y `ADD COLUMN IF NOT EXISTS`, que la versión anterior tolera). Un cambio de esquema que no sea aditivo necesita su propio plan de vuelta atrás.
+Al final imprime el commit desplegado y el anterior, con las órdenes para volver atrás. Reinicia el Caddy interno solo cuando cambia `deploy/Caddyfile`
 (tiene el admin desactivado, así que no admite `reload`). **No toca el Caddy del host**: si su bloque difiere de `deploy/Caddyfile.host-snippet`, avisa.
 
 ## 10. Acceso: login obligatorio (web, API y MCP)

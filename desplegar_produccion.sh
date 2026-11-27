@@ -4,19 +4,22 @@
 #   ./desplegar_produccion.sh --sin-pull      despliega lo que haya en el directorio (cambios locales, commits aún sin subir)
 #   ./desplegar_produccion.sh --probar        antes de desplegar pasa los tests en una copia aislada con una PostGIS desechable
 #   ./desplegar_produccion.sh --solo-verificar  no toca nada: solo comprueba que todo responde
+#   ./desplegar_produccion.sh --volver-atras    vuelve a poner las imágenes del despliegue anterior (etiqueta :anterior) y verifica
 # La web (y la API) exigen iniciar sesión con la cuenta de Guilda Work; el MCP, un token OAuth de esa misma cuenta (o MG_MCP_TOKEN).
 # Qué hace: 1) comprueba .env y Docker · 2) git pull --ff-only · 3) (opcional) tests · 4) crea en Hydra el cliente OIDC si falta
-#           5) docker compose up -d --build (y reinicia el Caddy interno si cambió deploy/Caddyfile) · 6) verifica salud, OAuth y MCP.
+#           5) construye las imágenes nuevas SIN tocar las que funcionan, las prueba en un contenedor aparte (arranque, /api/health con la base
+#              de datos, MCP e ingestor importables) y solo entonces las pone en marcha; si la pila nueva no responde, vuelve sola a las anteriores
+#              (y reinicia el Caddy interno si cambió deploy/Caddyfile) · 6) verifica salud, OAuth y MCP.
 # Debe correr como el usuario que lleva Docker (guilda); si lo lanzas como root se reejecuta como guilda.
 # NO toca el Caddy del host (/etc/caddy/sitios.d/radio.caddy): solo avisa si difiere de deploy/Caddyfile.host-snippet.
 set -uo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 if [ "$(id -u)" = 0 ] && id guilda >/dev/null 2>&1; then exec su guilda -c "cd '$PWD' && ./$(basename "$0") $*"; fi
 
-PULL=1; PROBAR=0; SOLO_VERIFICAR=0
+PULL=1; PROBAR=0; SOLO_VERIFICAR=0; VOLVER=0
 for a in "$@"; do case "$a" in
-  --sin-pull) PULL=0;; --probar) PROBAR=1;; --solo-verificar) SOLO_VERIFICAR=1;;
-  -h|--help) sed -n 2,9p "$0"; exit 0;; *) echo "Opción desconocida: $a" >&2; exit 2;; esac; done
+  --sin-pull) PULL=0;; --probar) PROBAR=1;; --solo-verificar) SOLO_VERIFICAR=1;; --volver-atras) VOLVER=1;;
+  -h|--help) sed -n 2,13p "$0"; exit 0;; *) echo "Opción desconocida: $a" >&2; exit 2;; esac; done
 
 ok()   { printf '  \033[32m✔\033[0m %s\n' "$*"; }
 aviso(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
@@ -55,6 +58,18 @@ verificar() {
   fi
 }
 
+IMAGENES="meteo-guilda-api meteo-guilda-aprs meteo-guilda-mcp"
+salud_local() { [ "$(curl -s -m 5 "$LOCAL/api/health")" = '{"ok":true,"db":true}' ]; }
+esperar_salud() { for _ in $(seq 1 "${1:-40}"); do salud_local && return 0; sleep 3; done; return 1; }
+volver_atras() {   # pone las imágenes :anterior como :latest y recrea la pila con ellas
+  local hay=0
+  for i in $IMAGENES; do docker image inspect "$i:anterior" >/dev/null 2>&1 && { docker image tag "$i:anterior" "$i:latest"; hay=1; }; done
+  [ "$hay" = 1 ] || { fallo "No hay imágenes :anterior para volver atrás"; return 1; }
+  docker compose up -d --no-build 2>&1 | grep -E 'Error|error|Recreated|Started' | tail -5 | sed 's/^/  /'
+  esperar_salud 40 && ok "De vuelta a las imágenes anteriores: la API responde" || fallo "Ni siquiera las imágenes anteriores responden: mira docker compose logs"
+}
+if [ "$VOLVER" = 1 ]; then echo "== Volver atrás =="; ERRORES=0; volver_atras; verificar; [ "$ERRORES" = 0 ] && echo "Vuelta atrás correcta." || exit 1; exit 0; fi
+
 if [ "$SOLO_VERIFICAR" = 1 ]; then verificar; [ "$ERRORES" = 0 ] && echo "Todo bien." || { echo "$ERRORES comprobaciones fallan." >&2; exit 1; }; exit $?; fi
 
 echo "== 1. Requisitos =="
@@ -91,7 +106,7 @@ if [ "$PROBAR" = 1 ]; then
   docker network create mg-deploy-test >/dev/null && docker run -d --rm --name mg-deploy-test-db --network mg-deploy-test -e POSTGRES_USER=mg -e POSTGRES_PASSWORD=mg -e POSTGRES_DB=meteoguilda_test postgis/postgis:16-3.4 >/dev/null
   until docker exec mg-deploy-test-db pg_isready -U mg -d meteoguilda_test >/dev/null 2>&1; do sleep 2; done; sleep 4
   docker run --rm --network mg-deploy-test -v "$PWD:/src:ro" -e PYTHONDONTWRITEBYTECODE=1 -e MG_DATABASE_URL=postgresql://mg:mg@mg-deploy-test-db:5432/meteoguilda_test python:3.12-slim \
-    sh -c "mkdir /w && cp -r /src/backend /src/web /w/ && cd /w/backend && pip install -q -e '.[dev]' >/dev/null 2>&1 && python -m pytest -q -p no:cacheprovider" || parar "Los tests fallan: no se despliega"
+    sh -c "mkdir /w && cp -r /src/backend /src/web /src/scripts /w/ && cd /w/backend && pip install -q -e '.[dev]' >/dev/null 2>&1 && python -m pytest -q -p no:cacheprovider" || parar "Los tests fallan: no se despliega"
   ok "Tests en verde"
 fi
 
@@ -116,12 +131,44 @@ if SW="$(python3 scripts/version_sw.py 2>&1)"; then ok "$SW"; git diff --quiet w
 
 echo "== 5. Contenedores =="
 SHA_ANTES="$(sha256sum deploy/Caddyfile | cut -c1-16)"; SHA_PREV="$(cat .caddyfile.sha 2>/dev/null || true)"
-docker compose up -d --build 2>&1 | grep -E 'Error|error|Built|Started|Recreated' | tail -8 | sed 's/^/  /'
+# 5a. Las imágenes que funcionan se guardan como :anterior y las nuevas se construyen sin tocar los contenedores en marcha.
+for i in $IMAGENES; do docker image inspect "$i:latest" >/dev/null 2>&1 && docker image tag "$i:latest" "$i:anterior"; done
+docker compose build 2>&1 | grep -iE '^.*(error|failed)' | tail -5 | sed 's/^/  /'
+[ "${PIPESTATUS[0]}" = 0 ] || parar "La imagen nueva no se construye: sigue en marcha la anterior"
+# 5b. Prueba de la imagen nueva en un contenedor aparte (misma red y .env, sin procesos de fondo): arranca, /api/health con base de datos,
+#     y el MCP y el ingestor se importan. Si falla, no se toca nada de lo que está en marcha.
+PRUEBA="mg-prueba-despliegue"; RED="$(basename "$PWD")_default"
+docker rm -f "$PRUEBA" >/dev/null 2>&1
+ENV_PRUEBA="$(mktemp)"; chmod 600 "$ENV_PRUEBA"      # la URL de la base lleva la contraseña: en un fichero, no en la línea de órdenes
+printf 'MG_DATABASE_URL=postgresql://mg:%s@db:5432/meteoguilda\nMG_PREGEN=0\nMG_REPEATERS_SYNC=0\nMG_PUBLIC_URL=%s\n' "$(envv POSTGRES_PASSWORD)" "$PUBLICA" > "$ENV_PRUEBA"
+docker run -d --name "$PRUEBA" --network "$RED" --env-file .env --env-file "$ENV_PRUEBA" \
+  meteo-guilda-api:latest uvicorn meteoguilda.main:app --host 0.0.0.0 --port 8000 --workers 1 >/dev/null || { rm -f "$ENV_PRUEBA"; parar "No se pudo arrancar la imagen nueva para probarla"; }
+rm -f "$ENV_PRUEBA"
+SANA=0
+for _ in $(seq 1 30); do
+  if [ "$(docker exec "$PRUEBA" python -c "import urllib.request as u;print(u.urlopen('http://127.0.0.1:8000/api/health',timeout=3).read().decode())" 2>/dev/null)" = '{"ok":true,"db":true}' ]; then SANA=1; break; fi
+  docker ps -q -f name="^$PRUEBA$" | grep -q . || break; sleep 2
+done
+if [ "$SANA" = 1 ] && docker run --rm --env-file .env meteo-guilda-mcp:latest python -c "import meteoguilda.mcp_server, meteoguilda.ingest" >/dev/null 2>&1; then
+  ok "Imagen nueva probada aparte: arranca, /api/health con base de datos y MCP e ingestor importables"
+  docker rm -f "$PRUEBA" >/dev/null 2>&1
+else
+  docker logs --tail 15 "$PRUEBA" 2>&1 | sed 's/^/    /'; docker rm -f "$PRUEBA" >/dev/null 2>&1
+  for i in $IMAGENES; do docker image inspect "$i:anterior" >/dev/null 2>&1 && docker image tag "$i:anterior" "$i:latest"; done
+  parar "La imagen nueva no pasa la prueba: NO se ha sustituido la que funciona (sigue en marcha la anterior)"
+fi
+# 5c. Ahora sí: se sustituyen los contenedores. Si la pila nueva no responde, se vuelve sola a la anterior.
+docker compose up -d --no-build 2>&1 | grep -E 'Error|error|Started|Recreated' | tail -8 | sed 's/^/  /'
 if [ "$SHA_ANTES" != "$SHA_PREV" ]; then docker compose restart web >/dev/null 2>&1 && ok "Caddy interno reiniciado (cambió deploy/Caddyfile; el reload está desactivado)"; echo "$SHA_ANTES" > .caddyfile.sha; fi
-for i in $(seq 1 40); do curl -sf -m 3 "$LOCAL/api/health" >/dev/null 2>&1 && break; sleep 3; done
+if ! esperar_salud 40; then
+  fallo "La pila nueva no responde en $LOCAL/api/health: se vuelve a las imágenes anteriores"
+  docker compose logs --tail 20 api 2>&1 | sed 's/^/    /'
+  volver_atras
+  echo "Despliegue revertido: el código nuevo ($(git rev-parse --short HEAD)) no está en marcha; sigue la versión anterior." >&2; exit 1
+fi
 docker image prune -f >/dev/null 2>&1
 
 verificar
 echo
 if [ "$ERRORES" = 0 ]; then echo "Despliegue correcto: $(git rev-parse --short HEAD) (antes $ANTES)."; else
-  echo "Despliegue con $ERRORES problemas. Para volver atrás (si no tienes commits locales sin subir): git reset --hard $ANTES && ./desplegar_produccion.sh --sin-pull" >&2; exit 1; fi
+  echo "Despliegue con $ERRORES problemas. Para volver a las imágenes anteriores: ./desplegar_produccion.sh --volver-atras (el código: git reset --hard $ANTES)" >&2; exit 1; fi
