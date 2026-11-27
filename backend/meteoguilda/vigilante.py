@@ -20,9 +20,23 @@ def alertas(est: dict, config: list[str] | None = None) -> list[dict]:
         out.append({"id": "aprs", "nivel": "alto", "texto": "APRS: nunca ha entrado ningún paquete de estaciones."})
     elif edad > SILENCIO_APRS_H * 3600:
         out.append({"id": "aprs", "nivel": "alto", "texto": f"APRS: ningún paquete de estaciones desde hace {int(edad // 3600)} h."})
+    if (est.get("claves") or {}).get("aemet"):
+        av = est.get("avisos_aemet") or {}
+        if av.get("espera_reintento_s") and (av.get("edad_cache_s") is None or av["edad_cache_s"] > 6 * 3600):
+            out.append({"id": "aemet", "nivel": "medio", "texto": "AEMET: los avisos oficiales llevan más de 6 h sin actualizarse (la fuente está dando error o limitando)."})
+    mc = est.get("meteocat") or {}
+    if mc.get("tope_mes") and mc.get("consultas_mes", 0) >= 0.8 * mc["tope_mes"]:
+        out.append({"id": "meteocat", "nivel": "medio", "texto": f"Meteocat: {mc['consultas_mes']} de {mc['tope_mes']} consultas del mes gastadas; al llegar al tope se sirve lo último guardado."})
+    ver = est.get("verificacion") or {}
+    if ver.get("registros") and (ver.get("ultimo_registro_hace_s") or 0) > 48 * 3600:
+        out.append({"id": "verificacion", "nivel": "medio", "texto": "Verificación: no se guardan previsiones nuevas desde hace más de 48 h (el pregenerador puede estar parado)."})
     for i, t in enumerate(configuracion.avisos() if config is None else config):
         out.append({"id": f"config{i}", "nivel": "medio", "texto": "Configuración: " + t})
     return out
+
+
+def semaforo(lista: list[dict]) -> str:
+    return "rojo" if any(a["nivel"] == "alto" for a in lista) else "amarillo" if lista else "verde"
 
 
 def _cuentas() -> list[str]:

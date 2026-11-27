@@ -56,3 +56,16 @@ def test_estado_incluye_alertas(cli, monkeypatch):  # noqa: F811
     monkeypatch.setenv("MG_ADMIN_TOKEN", "t0k")
     d = cli.get("/api/admin/estado", headers={"x-admin-token": "t0k"}).json()
     assert isinstance(d["alertas"], list)
+
+
+def test_vigilante_alertas_de_fuentes_y_semaforo():
+    base = {"aprs": {"ultimo_paquete_hace_s": 60}, "claves": {"aemet": True}, "avisos_aemet": {"edad_cache_s": None, "espera_reintento_s": 200},
+            "meteocat": {"consultas_mes": 72, "tope_mes": 90, "consultas_hoy": 1, "tope_dia": 5},
+            "verificacion": {"registros": 500, "ultimo_registro_hace_s": 50 * 3600}}
+    ids = {a["id"] for a in vigilante.alertas(base, config=[])}
+    assert ids == {"aemet", "meteocat", "verificacion"} and vigilante.semaforo(vigilante.alertas(base, config=[])) == "amarillo"
+    sano = {**base, "avisos_aemet": {"edad_cache_s": 600, "espera_reintento_s": 0}, "meteocat": {"consultas_mes": 10, "tope_mes": 90}, "verificacion": {"registros": 500, "ultimo_registro_hace_s": 60}}
+    assert vigilante.alertas(sano, config=[]) == [] and vigilante.semaforo([]) == "verde"
+    assert vigilante.semaforo([{"id": "aprs", "nivel": "alto", "texto": "x"}]) == "rojo"
+    sin_clave = {**base, "claves": {"aemet": False}}
+    assert "aemet" not in {a["id"] for a in vigilante.alertas(sin_clave, config=[])}

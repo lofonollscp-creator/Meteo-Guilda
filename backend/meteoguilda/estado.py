@@ -41,4 +41,5 @@ def estado() -> dict:
         "push": {"dispositivos": push.get("dispositivos"), "pendientes": push.get("pendientes"), "ultimo_envio_hace_s": _edad(push.get("ult_envio"))},
     }
     out["alertas"] = vigilante.alertas(out)
+    out["semaforo"] = vigilante.semaforo(out["alertas"])
     return out
