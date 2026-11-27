@@ -14,7 +14,7 @@ CALL_RE = re.compile(r"^[A-Z0-9]{1,3}[0-9][A-Z0-9]{0,3}[A-Z](/[A-Z0-9]{1,4})?$|^
 GRID_RE = re.compile(r"^[A-R]{2}[0-9]{2}([A-X]{2})?$", re.I)
 MAX_QSOS = 20000
 FIELDS = ["call", "qso_at", "band", "mode", "freq_mhz", "rst_sent", "rst_rcvd", "grid", "name", "notes", "qsl_sent", "qsl_rcvd"]
-_SEL = "id, call, qso_at, band, mode, freq_mhz, rst_sent, rst_rcvd, grid, name, notes, qsl_sent, qsl_rcvd"
+_SEL = "id, call, qso_at, band, mode, freq_mhz, rst_sent, rst_rcvd, grid, name, notes, qsl_sent, qsl_rcvd, servicios"
 
 
 def _hash(key: str) -> str:

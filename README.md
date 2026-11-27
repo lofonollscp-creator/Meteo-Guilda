@@ -16,7 +16,7 @@ Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [A
 **Radio Guilda**
 - Repetidores FM/DMR/D-STAR/C4FM (BrandMeister + HearHam) en mapa con agrupación, ficha, cobertura estimada, exportación a CHIRP.
 - Propagación troposférica y HF, línea gris; pasos de satélites con trayectoria y calendario; ventanas para operar en portátil.
-- Cuaderno QSL: duplicados, ADIF (importar/exportar), estadísticas, cuadros trabajados, tarjetas QSL en PNG.
+- Cuaderno QSL: duplicados, ADIF (importar/exportar), estadísticas, cuadros trabajados, tarjetas QSL en PNG y conexión con LoTW, eQSL y QRZ (subir y bajar confirmaciones; ver docs/QSL-SERVICIOS.md).
 - Herramientas: locator, distancia, longitud de antena, Morse con audio, código Q, fonético, CTCSS, dBm.
 
 **Plataforma**

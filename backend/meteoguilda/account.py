@@ -206,9 +206,10 @@ async def test(request: Request):
 def delete_me(request: Request):
     """Borra los ajustes, claves, memoria del asistente, dispositivos de notificaciones, alertas y rutas guardadas de la persona en este servicio."""
     user = current(request)
-    from . import alertas, push, rutas_guardadas
+    from . import alertas, push, qsl_servicios, rutas_guardadas
     push.borrar_de(user["sub"])          # dispositivos de notificaciones
     alertas.borrar_de(user["sub"])       # alertas de radio y salidas, sus límites y lo enviado
     rutas_guardadas.borrar_de(user["sub"])
+    qsl_servicios.borrar_de(user["sub"])     # credenciales de LoTW, eQSL y QRZ
     with db.pool().connection() as con:
         con.execute("DELETE FROM user_settings WHERE sub=%s", [user["sub"]])   # ajustes, claves y memoria del asistente

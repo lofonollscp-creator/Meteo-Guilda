@@ -525,6 +525,28 @@ async def delete_saved_route(ctx: Context, route_id: int) -> dict:
     return await _as(_need_who(ctx), "DELETE", f"/api/rutas/{route_id}")
 
 
+# ---------- Cuaderno conectado con LoTW, eQSL y QRZ (las credenciales solo se guardan en la web) ----------
+@mcp.tool()
+async def qsl_services_status(ctx: Context) -> dict:
+    """Qué servicios de confirmación tienes conectados (LoTW, eQSL, QRZ), su usuario y su último resultado. Las credenciales NO se pueden ver ni
+    guardar por aquí: se escriben solo en la web (Radio → Cuaderno → Servicios). Requiere OAuth."""
+    return await _as(_need_who(ctx), "GET", "/api/qsl/servicios")
+
+
+@mcp.tool()
+async def qsl_upload(ctx: Context, service: Literal["lotw", "eqsl", "qrz"], key: str | None = None) -> dict:
+    """Sube al servicio (LoTW, eQSL o QRZ) los contactos del cuaderno que aún no se le han enviado (hasta 300 por llamada). Necesita el servicio conectado
+    en la web y la clave del cuaderno (`key` o MG_LOGBOOK_KEY). Requiere OAuth."""
+    return await _as(_need_who(ctx), "POST", f"/api/qsl/{service}/subir", headers=_auth(key))
+
+
+@mcp.tool()
+async def qsl_import_confirmations(ctx: Context, service: Literal["lotw", "eqsl", "qrz"], from_scratch: bool = False, key: str | None = None) -> dict:
+    """Baja las confirmaciones (QSL recibidas) del servicio desde la última vez (o todas con `from_scratch`) y las marca en el cuaderno: {descargadas,
+    confirmados_nuevos, sin_pareja}. Requiere OAuth y la clave del cuaderno."""
+    return await _as(_need_who(ctx), "POST", f"/api/qsl/{service}/confirmaciones", headers=_auth(key), params={"desde_cero": from_scratch or None})
+
+
 class _Bearer:
     """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
     /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""

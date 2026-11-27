@@ -159,3 +159,11 @@ CREATE TABLE IF NOT EXISTS alertas_envios (
   PRIMARY KEY (sub, clave)
 );
 CREATE INDEX IF NOT EXISTS alertas_envios_cuando ON alertas_envios (sub, cuando DESC);
+
+-- Cuaderno conectado (ver qsl_servicios.py): qué se ha subido y confirmado en LoTW, eQSL y QRZ, y las credenciales CIFRADAS de cada persona
+ALTER TABLE qsos ADD COLUMN IF NOT EXISTS servicios JSONB NOT NULL DEFAULT '{}'::jsonb;
+CREATE TABLE IF NOT EXISTS qsl_credenciales (
+  sub TEXT NOT NULL, servicio TEXT NOT NULL, cifrado TEXT NOT NULL, publico JSONB NOT NULL DEFAULT '{}'::jsonb,
+  estado JSONB NOT NULL DEFAULT '{}'::jsonb, actualizado TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (sub, servicio)
+);

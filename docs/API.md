@@ -55,6 +55,9 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/qso` · `POST /api/qso` | Listar (filtros `q`, `band`, `mode`, `status`) / añadir contacto |
 | `PATCH/DELETE /api/qso/{id}` | Marcar QSL enviada/recibida, editar, borrar |
 | `GET /api/qso/stats` · `GET /api/qso/adif` · `POST /api/qso/import` | Estadísticas, exportar y importar ADIF |
+| `POST /api/qsl/{lotw\|eqsl\|qrz}/subir` · `POST /api/qsl/{servicio}/confirmaciones` | Subir los contactos pendientes e importar confirmaciones (además, sesión o identidad de la cuenta con el servicio conectado; ver [QSL-SERVICIOS.md](QSL-SERVICIOS.md)) |
+
+`GET /api/qsl/servicios` (estado) y `PUT|DELETE /api/qsl/servicios/{servicio}` (credenciales cifradas, **solo con la sesión de la web**) van con la cuenta.
 
 ## Administración (`X-Admin-Token`)
 `POST /api/admin/repeaters`, `POST /api/admin/repeaters/sync`, `POST /api/admin/repeaters/{id}/coverage`.

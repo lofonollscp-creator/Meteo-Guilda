@@ -70,6 +70,9 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Editar / marcar QSL | `PATCH /api/qso/{id}` | `logbook_update`, `logbook_mark_qsl` |
 | Borrar un contacto | `DELETE /api/qso/{id}` | `logbook_delete` |
 | Estadísticas, ADIF (importar/exportar) | `GET /api/qso/stats`, `/api/qso/adif`, `POST /api/qso/import` | `logbook_stats`, `logbook_export_adif`, `logbook_import_adif` |
+| Servicios: estado de LoTW, eQSL y QRZ | `GET /api/qsl/servicios` | `qsl_services_status` (OAuth) |
+| Servicios: «Subir pendientes» | `POST /api/qsl/{servicio}/subir` | `qsl_upload` (OAuth + clave del cuaderno) |
+| Servicios: «Bajar confirmaciones» | `POST /api/qsl/{servicio}/confirmaciones` | `qsl_import_confirmations` (OAuth + clave del cuaderno) |
 
 ## Cuenta, IA y asistente
 | En la web | API | MCP |
@@ -82,6 +85,7 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 
 ## Excepciones (solo web o solo administración)
 - **Guardar o borrar claves de API** (`PUT/DELETE /api/me/key`): no pasan por el MCP para que una clave nunca viaje por un chat de IA.
+- **Guardar o quitar las credenciales de LoTW, eQSL y QRZ** (`PUT/DELETE /api/qsl/servicios/{servicio}`): solo con la sesión de la web; al MCP le responde 403. Ver [QSL-SERVICIOS.md](QSL-SERVICIOS.md).
 - **Borrar mis datos de la cuenta** (`DELETE /api/me`) y **cerrar sesión**: acciones de la persona en la web.
 - **Administración** (`/api/admin/*`: sincronizar repetidores, calcular cobertura, alta manual) y **OAuth/login** (`/api/oauth/*`, `/api/auth/*`): con `MG_ADMIN_TOKEN` o de uso interno.
 - **Solo en el navegador, sin datos del servidor**: sección «Aprende», herramientas de radio (Morse con audio, código Q, fonético, CTCSS, dBm, longitud de antena), generar la

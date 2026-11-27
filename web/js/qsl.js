@@ -2,6 +2,7 @@
 import { $, $$, esc, nf, LS, fromLocator, toLocator, distKm, debounce } from "./util.js";
 import { icon } from "./icons.js";
 import { syncing, call } from "./sync.js";
+import * as qslserv from "./qslserv.js";
 
 const BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "4m", "2m", "70cm", "23cm"];
 const MODES = ["SSB", "CW", "FM", "FT8", "FT4", "DMR", "D-STAR", "C4FM", "RTTY", "AM", "Otro"];
@@ -81,9 +82,11 @@ export async function view(c, h) {
       <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">${icon("plus", 14)} Añadir contacto</button><span class="empty" id="f-msg"></span></div></form></section>
     <section class="sec"><div class="label">Contactos <em id="qcount"></em></div>
       <div class="row" style="margin-bottom:12px"><input id="qft" type="search" placeholder="Filtrar por indicativo, nombre…" style="max-width:280px" value="${esc(f.text)}"><select id="qfs" style="width:auto"><option value="">Todos</option><option value="pend">Pendientes de QSL</option><option value="conf">Confirmados</option></select></div>
-      <div class="tablewrap"><table><thead><tr><th>Indicativo</th><th>UTC</th><th>Banda · modo</th><th>Locator</th><th>QSL</th><th></th></tr></thead><tbody id="qrows"></tbody></table></div></section>`;
+      <div class="tablewrap"><table><thead><tr><th>Indicativo</th><th>UTC</th><th>Banda · modo</th><th>Locator</th><th>QSL</th><th></th></tr></thead><tbody id="qrows"></tbody></table></div></section>
+    <section class="sec"><div class="label">Servicios <em>LoTW, eQSL y QRZ</em></div><div id="qsrv"></div></section>`;
   $("#qfs").value = f.status;
   await load(); paint(); map();
+  qslserv.view($("#qsrv"), async () => { await load(); paint(); map(); });
   const call$ = $("#f-call");
   call$.addEventListener("input", debounce(() => {                          // aviso de duplicado y autocompletado
     const c = call$.value.trim().toUpperCase(), prev = rows.filter((r) => r.call === c);
