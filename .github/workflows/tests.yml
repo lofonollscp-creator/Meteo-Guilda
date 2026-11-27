@@ -23,3 +23,22 @@ jobs:
         working-directory: backend
       - run: python -m pytest -q tests
         working-directory: backend
+  comprobaciones:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Sintaxis de los módulos JS de la web
+        run: for f in web/js/*.js web/sw.js; do node --input-type=module --check < "$f" || exit 1; done
+      - name: Sintaxis de los scripts de shell
+        run: for f in *.sh scripts/*.sh e2e/*.sh; do [ -f "$f" ] && bash -n "$f" || true; done
+      - name: Versión del service worker al día
+        run: python3 scripts/version_sw.py --check
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Interfaz en navegador (anchos, accesibilidad, sin conexión)
+        run: ./e2e/correr.sh

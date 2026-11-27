@@ -24,7 +24,7 @@ from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
-from . import push, memoria, configuracion, estado as estado_mod
+from . import push, reglas, memoria, configuracion, uso_ia, estado as estado_mod
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -191,7 +191,7 @@ async def lifespan(app: FastAPI):
     tasks = []
     if os.environ.get("MG_PREGEN") == "1":
         tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
-        tasks.append(asyncio.create_task(push.bucle(app.state.http)))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
+        tasks.append(asyncio.create_task(push.bucle(app.state.http, (lambda la, lo: get_summary(app.state.http, la, lo), lambda la, lo: mar_mod.fetch(app.state.http, la, lo)))))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
     if os.environ.get("MG_REPEATERS_SYNC") == "1":
         tasks.append(asyncio.create_task(repeaters_loop(app.state.http)))
     yield
@@ -208,6 +208,7 @@ app.include_router(oauth.router)
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(push.router)
+app.include_router(reglas.router)
 app.include_router(memoria.router)
 
 
@@ -512,6 +513,7 @@ async def _asistente(request: Request, req: ChatReq, aviso=None) -> dict:
     if cfg.provider == "server" and not os.environ.get("OPENROUTER_API_KEY"):
         raise HTTPException(503, "El servidor no tiene IA configurada; añade tu propia clave en Ajustes")
     limit(request, "assistant")
+    await asyncio.to_thread(uso_ia.comprobar, account.current(request)["sub"], cfg.api_key)       # tope diario con la IA del servidor
     http = H(request)
     system = ASSISTANT_SYSTEM + f"\nHoy es {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC."
     home = req.home.model_dump() if req.home else s.get("home")

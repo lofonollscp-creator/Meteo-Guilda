@@ -27,6 +27,9 @@ def alertas(est: dict, config: list[str] | None = None) -> list[dict]:
     mc = est.get("meteocat") or {}
     if mc.get("tope_mes") and mc.get("consultas_mes", 0) >= 0.8 * mc["tope_mes"]:
         out.append({"id": "meteocat", "nivel": "medio", "texto": f"Meteocat: {mc['consultas_mes']} de {mc['tope_mes']} consultas del mes gastadas; al llegar al tope se sirve lo último guardado."})
+    ia = est.get("asistente") or {}
+    if ia.get("tope_por_persona") and (ia.get("maximo_por_persona") or 0) >= ia["tope_por_persona"]:
+        out.append({"id": "ia_tope", "nivel": "bajo", "texto": f"Asistente: alguien ha llegado hoy al tope de {ia['tope_por_persona']} consultas con la IA del servidor."})
     ver = est.get("verificacion") or {}
     if ver.get("registros") and (ver.get("ultimo_registro_hace_s") or 0) > 48 * 3600:
         out.append({"id": "verificacion", "nivel": "medio", "texto": "Verificación: no se guardan previsiones nuevas desde hace más de 48 h (el pregenerador puede estar parado)."})
@@ -36,7 +39,7 @@ def alertas(est: dict, config: list[str] | None = None) -> list[dict]:
 
 
 def semaforo(lista: list[dict]) -> str:
-    return "rojo" if any(a["nivel"] == "alto" for a in lista) else "amarillo" if lista else "verde"
+    return "rojo" if any(a["nivel"] == "alto" for a in lista) else "amarillo" if any(a["nivel"] == "medio" for a in lista) else "verde"   # «bajo» solo informa
 
 
 def _cuentas() -> list[str]:

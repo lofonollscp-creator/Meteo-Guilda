@@ -107,6 +107,22 @@ function bindCuenta(body) {
     try { await api("/api/me", { method: "DELETE" }); await load(); $("#acc-res").textContent = "Borrado."; } catch (e) { $("#acc-res").textContent = e.message; }
   });
 }
+/* Avisos personalizados: «avísame si las rachas superan 60 km/h en Mi ubicación». Una por variable y lugar, hasta 5 por dispositivo. */
+async function reglasView(est, q, msg) {
+  const box = $("#rg-lista"); if (!box || !est.suscrito) { if (box) box.textContent = "Activa las notificaciones en este dispositivo para crear avisos."; return; }
+  let d; try { d = await push.reglas(); } catch (e) { box.textContent = e.message; return; }
+  const V = d.variables || {}, pintar = (r) => `<div class="row" style="align-items:center;gap:8px;margin:4px 0"><span style="flex:1">${esc(V[r.variable]?.nombre || r.variable)} ≥ <b class="num">${r.umbral}</b> ${esc(V[r.variable]?.unidad || "")}${r.nombre ? ` · ${esc(r.nombre)}` : ""}</span><button class="btn ghost sm" type="button" data-rg="${r.id}" aria-label="Borrar este aviso">Borrar</button></div>`;
+  const form = q?.lat == null ? '<p class="note">Fija «Mi ubicación» en la pestaña Cuenta para crear avisos de tu zona.</p>'
+    : d.reglas.length >= d.maximo ? `<p class="note">Has llegado al máximo de ${d.maximo} avisos; borra alguno para añadir otro.</p>`
+    : `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end"><div class="field" style="margin:0"><label for="rg-var">Avísame si…</label><select id="rg-var">${Object.entries(V).map(([k, v]) => `<option value="${k}">${esc(v.nombre)} (${esc(v.unidad)})</option>`).join("")}</select></div><div class="field" style="margin:0;width:96px"><label for="rg-val">Supera</label><input id="rg-val" type="number" inputmode="decimal" step="any" value="50"></div><button class="btn sm" type="button" id="rg-add">Añadir</button></div><p class="note">Para «${esc(qthLabel(q))}», mirando las próximas 24 h. Como mucho un aviso al día por regla.</p>`;
+  box.innerHTML = (d.reglas.map(pintar).join("") || '<p class="note">Aún no tienes ninguno.</p>') + form;
+  const recarga = () => reglasView(est, q, msg);
+  box.querySelectorAll("[data-rg]").forEach((b) => b.addEventListener("click", async () => { try { await push.borrarRegla(b.dataset.rg); msg("Aviso borrado.", "ok"); recarga(); } catch (e) { msg(e.message, "bad"); } }));
+  $("#rg-add")?.addEventListener("click", async () => {
+    try { await push.crearRegla({ variable: $("#rg-var").value, umbral: parseFloat($("#rg-val").value), lat: q.lat, lon: q.lon, nombre: q.name || q.locator || null }); msg("Aviso guardado.", "ok"); recarga(); } catch (e) { msg(e.message, "bad"); }
+  });
+}
+
 /* ---------- Avisos (notificaciones push) ---------- */
 async function avisosView(body) {
   const box = $("#avbox", body); if (!box) return;
@@ -125,14 +141,16 @@ async function avisosView(body) {
           <label class="sw"><input type="checkbox" id="av-avisos" ${est.avisos !== false ? "checked" : ""}><span><b>Avisos oficiales de mi zona</b><small>${q?.lat != null ? `Para «${esc(qthLabel(q))}» (Mi ubicación, redondeada a ~1 km). Si la cambias, vuelve a guardar aquí.` : "Necesitas fijar «Mi ubicación» en la pestaña Cuenta."} Fuente: AEMET.</small></span></label>
           <div class="field"><label for="av-nivel">Avisar a partir de</label><select id="av-nivel"><option value="2" ${(est.nivel_min || 2) === 2 ? "selected" : ""}>Naranja (peligro importante)</option><option value="1" ${est.nivel_min === 1 ? "selected" : ""}>Amarillo (algo de riesgo)</option></select></div>
           <label class="sw"><input type="checkbox" id="av-pasos" ${est.pasos !== false ? "checked" : ""}><span><b>Recordatorios de pasos de satélite</b><small>5 minutos antes, cuando se lo pidas al asistente.</small></span></label>
+          <div class="field" id="rg-box"><label>Avisos con tus propios umbrales</label><div id="rg-lista" class="note">Cargando…</div></div>
           <div class="row"><button class="btn sm" type="button" id="av-save">Guardar</button><button class="btn ghost sm" type="button" id="av-test">Enviar una de prueba</button></div>
         </div>`}
       <p class="note" id="av-res" role="status"></p>
-      <details class="field"><summary class="note">Qué guardamos</summary><p class="note">El identificador de este navegador que le da su servicio de notificaciones (Google, Mozilla o Apple), sus claves de cifrado, tu ubicación aproximada (1 km) y lo que has elegido recibir. El contenido de cada notificación viaja cifrado hasta tu navegador. Se borra al desactivarlas, al borrar tu cuenta o tras 90 días sin poder entregarte nada. No se usa para publicidad ni se cede a terceros.</p></details>`;
+      <details class="field"><summary class="note">Qué guardamos</summary><p class="note">El identificador de este navegador que le da su servicio de notificaciones (Google, Mozilla o Apple), sus claves de cifrado, tu ubicación aproximada (1 km), los avisos con umbral que hayas creado y lo que has elegido recibir. El contenido de cada notificación viaja cifrado hasta tu navegador. Se borra al desactivarlas, al borrar tu cuenta o tras 90 días sin poder entregarte nada. No se usa para publicidad ni se cede a terceros.</p></details>`;
     $("#av-on")?.addEventListener("change", async (e) => {
       try { if (e.target.checked) { await push.activar(prefs()); msg("Notificaciones activadas en este dispositivo.", "ok"); } else { await push.desactivar(); msg("Notificaciones desactivadas y dispositivo borrado del servidor.", "ok"); } } catch (er) { msg(er.message, "bad"); }
       pintar(await push.estado());
     });
+    reglasView(est, q, msg);
     $("#av-save")?.addEventListener("click", async () => { try { await push.guardar(prefs()); msg("Guardado.", "ok"); } catch (er) { msg(er.message, "bad"); } });
     $("#av-test")?.addEventListener("click", async () => { msg("Enviando…"); try { (await push.probar()).ok ? msg("Enviada: debería llegarte en unos segundos.", "ok") : msg("El servicio de notificaciones no la ha aceptado.", "bad"); } catch (er) { msg(er.message, "bad"); } });
   };

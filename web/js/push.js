@@ -47,3 +47,9 @@ export async function recordarPaso(p) {
   try { await api("/api/push/paso", { method: "POST", headers: json, body: JSON.stringify({ endpoint: s.endpoint, satelite: p.satelite, aos: p.aos, aos_az: p.aos_az ?? null, max_el: p.max_el ?? null }) }); return true; }
   catch (e) { if (/ya ha empezado|demasiado/.test(e.message)) throw e; return false; }
 }
+
+/* Avisos personalizados por umbral (viento, rachas, lluvia, oleaje): ver backend/meteoguilda/reglas.py */
+export async function reglas() { const s = await suscripcion(); if (!s) return { reglas: [], maximo: 5, variables: {} }; return api("/api/push/reglas/lista", { method: "POST", headers: json, body: JSON.stringify({ endpoint: s.endpoint }) }); }
+export async function crearRegla(r) { const s = await suscripcion(); if (!s) throw new Error("Las notificaciones no están activadas en este dispositivo"); return api("/api/push/reglas", { method: "PUT", headers: json, body: JSON.stringify({ endpoint: s.endpoint, ...r }) }); }
+export const borrarRegla = (id) => api(`/api/push/reglas/${id}`, { method: "DELETE" });
+

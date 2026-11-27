@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from . import avisos, meteocat, vigilante
+from . import avisos, meteocat, uso_ia, vigilante
 from .db import pool
 
 
@@ -38,6 +38,7 @@ def estado() -> dict:
                          "espera_reintento_s": max(0, int(avisos._hasta - time.time()))},
         "meteocat": {"consultas_mes": mes, "tope_mes": meteocat.MAX_MES, "consultas_hoy": dia, "tope_dia": meteocat.MAX_DIA},
         "verificacion": {"registros": ver.get("total"), "comparados": ver.get("verificadas"), "modelos": ver.get("modelos"), "ultimo_registro_hace_s": _edad(ver.get("ult"))},
+        "asistente": uso_ia.resumen(),
         "push": {"dispositivos": push.get("dispositivos"), "pendientes": push.get("pendientes"), "ultimo_envio_hace_s": _edad(push.get("ult_envio"))},
     }
     out["alertas"] = vigilante.alertas(out)

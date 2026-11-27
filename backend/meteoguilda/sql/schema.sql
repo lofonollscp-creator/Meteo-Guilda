@@ -129,5 +129,10 @@ CREATE TABLE IF NOT EXISTS push_cola (
   id BIGSERIAL PRIMARY KEY, endpoint TEXT NOT NULL REFERENCES push_subs(endpoint) ON DELETE CASCADE, cuando TIMESTAMPTZ NOT NULL,
   titulo TEXT NOT NULL, cuerpo TEXT NOT NULL, url TEXT NOT NULL DEFAULT '/', clave TEXT, enviada TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS push_reglas (
+  id BIGSERIAL PRIMARY KEY, endpoint TEXT NOT NULL REFERENCES push_subs(endpoint) ON DELETE CASCADE,
+  variable TEXT NOT NULL, umbral REAL NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, nombre TEXT, creada TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (endpoint, variable, lat, lon)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS push_cola_clave ON push_cola (endpoint, clave) WHERE clave IS NOT NULL;
 CREATE INDEX IF NOT EXISTS push_cola_pend ON push_cola (cuando) WHERE enviada IS NULL;

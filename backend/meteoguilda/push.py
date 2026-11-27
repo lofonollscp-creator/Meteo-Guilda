@@ -236,7 +236,7 @@ def datos_de(sub: str) -> list[dict]:
              "avisos_oficiales": f["avisos"], "nivel_minimo": f["nivel_min"], "pasos_satelite": f["pasos"], "alta": f["creada"].isoformat(), "ultima_entrega": f["ultimo_ok"].isoformat()} for f in filas]
 
 
-async def bucle(http: httpx.AsyncClient) -> None:
+async def bucle(http: httpx.AsyncClient, datos=None) -> None:
     """Cada 30 s envía lo pendiente; cada 15 min mira avisos nuevos; cada hora limpia."""
     t = 0
     while True:
@@ -247,6 +247,9 @@ async def bucle(http: httpx.AsyncClient) -> None:
                     await encolar_avisos(http)
                 if t % 120 == 0:
                     await asyncio.to_thread(limpiar)
+                if datos and t % 60 == 7:                              # cada 30 min: avisos personalizados por umbral (ver reglas.py)
+                    from . import reglas
+                    await reglas.revisar(*datos)
                 if t % 20 == 10:                                       # cada 10 min: ¿algo falla en silencio? (ver vigilante.py)
                     from . import vigilante
                     await asyncio.to_thread(vigilante.revisar)
