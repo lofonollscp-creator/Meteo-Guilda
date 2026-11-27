@@ -247,6 +247,9 @@ async def bucle(http: httpx.AsyncClient) -> None:
                     await encolar_avisos(http)
                 if t % 120 == 0:
                     await asyncio.to_thread(limpiar)
+                if t % 20 == 10:                                       # cada 10 min: ¿algo falla en silencio? (ver vigilante.py)
+                    from . import vigilante
+                    await asyncio.to_thread(vigilante.revisar)
         except Exception as e:  # noqa: BLE001
             log.warning("bucle push: %s", e)
         t += 1

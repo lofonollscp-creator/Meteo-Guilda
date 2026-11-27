@@ -111,6 +111,9 @@ if [ -n "$(envv MG_OIDC_ISSUER)" ]; then
   rm -f /tmp/.mg-hydra-cli.$$
 else aviso "MG_OIDC_ISSUER vacío: la web quedaría sin login y el MCP solo aceptaría la clave fija"; fi
 
+# La versión de la caché del service worker sale del contenido de web/: así los móviles se bajan siempre lo nuevo sin tocar el número a mano
+if SW="$(python3 scripts/version_sw.py 2>&1)"; then ok "$SW"; git diff --quiet web/sw.js || aviso "web/sw.js cambió: inclúyelo en el próximo commit"; else aviso "No se pudo versionar el service worker: $SW"; fi
+
 echo "== 5. Contenedores =="
 SHA_ANTES="$(sha256sum deploy/Caddyfile | cut -c1-16)"; SHA_PREV="$(cat .caddyfile.sha 2>/dev/null || true)"
 docker compose up -d --build 2>&1 | grep -E 'Error|error|Built|Started|Recreated' | tail -8 | sed 's/^/  /'

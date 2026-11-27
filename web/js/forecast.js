@@ -281,7 +281,7 @@ function render(d) {
   const day = T.slice(0, 8), now = T[0];
   const rain24 = day.reduce((s, x) => s + (x.lluvia_mm?.mean ?? 0), 0), gust24 = mx(day.map((x) => x.racha_kmh?.max)), wind24 = mx(day.map((x) => x.viento_kmh?.mean));
   const cloud = avg(day.map((x) => x.nubes_pct?.mean ?? 0)), iso = day.map((x) => x.isocero_m?.mean).filter((v) => v != null);
-  const near = c.estaciones_cercanas?.find((s) => s.dist_km <= 15 && s.temp_c != null);
+  const near = c.estaciones_cercanas?.find((s) => s.dist_km <= 30 && s.temp_c != null);
   const mountain = lug.kind === "montaña" || (c.ubicacion.altitud_m ?? 0) > 900;
   const alt = c.ubicacion.altitud_m != null ? ` · ${nf.format(c.ubicacion.altitud_m)} m` : "";
   const q0m = getQth(), isMine = q0m?.lat != null && Math.abs(q0m.lat - la) < 0.002 && Math.abs(q0m.lon - lo) < 0.002;
@@ -305,7 +305,7 @@ function render(d) {
 
   <div class="hero" style="--tint:${tint}">
     <div class="hero-temp num" aria-label="Temperatura prevista ahora">${t0(now.temp_c.mean)}<sup>°C</sup></div>
-    <div class="hero-note">${near ? `Estación <b>${esc(near.nombre || near.id)}</b> (${esc(near.fuente || "APRS")}) a ${near.dist_km} km mide <b class="num">${t0(near.temp_c)} °C</b> ahora.` : `Media de ${nm} modelos para el tramo actual. Sin estaciones cercanas con datos fiables.`}</div>
+    <div class="hero-note">${near ? `Estación <b>${esc(near.nombre || near.id)}</b> (${esc(near.fuente || "APRS")}) a ${near.dist_km} km${hace(near.hora)} mide <b class="num">${t0(near.temp_c)} °C</b>${difModelo(near.temp_c, now.temp_c.mean)}.` : `Media de ${nm} modelos para el tramo actual. Sin estaciones cercanas con datos fiables.`}</div>
     <div class="hero-now">
       ${now.viento_dir_txt ? `<span>Viento <b>${now.viento_dir_txt} ${t0(now.viento_kmh?.mean)} km/h</b></span>` : ""}
       ${now.humedad_pct ? `<span>Humedad <b>${t0(now.humedad_pct.mean)}%</b></span>` : ""}
@@ -685,6 +685,10 @@ async function refreshNow(btn) {
   } catch (e) { ctx.toast(e.message); }
   finally { btn.classList.remove("spin"); }
 }
+
+/* Lo medido junto a lo previsto en la cabecera: «hace 12 min» y la diferencia con la media de los modelos. */
+const hace = (iso) => { const m = iso ? Math.round((Date.now() - new Date(iso)) / 60000) : NaN; return Number.isFinite(m) && m >= 0 ? ` (hace ${m < 90 ? `${Math.max(m, 1)} min` : `${Math.round(m / 60)} h`})` : ""; };
+const difModelo = (obs, mod) => { const d = Math.round((obs - mod) * 10) / 10; return mod == null || Math.abs(d) < 0.5 ? ", en línea con los modelos" : `, ${nf1.format(Math.abs(d))} °C ${d > 0 ? "más" : "menos"} que los modelos`; };
 
 /* ---------- contraste de modelos ---------- */
 const MFMT = { temp_c: (v) => `${nf1.format(v)} °C`, lluvia_mm: (v) => `${nf1.format(v)} mm`, viento_kmh: (v) => `${nf.format(v)} km/h`, racha_kmh: (v) => `${nf.format(v)} km/h`, nubes_pct: (v) => `${nf.format(v)} %` };

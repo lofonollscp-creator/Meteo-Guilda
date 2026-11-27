@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime, timezone
 
-from . import avisos, meteocat
+from . import avisos, meteocat, vigilante
 from .db import pool
 
 
@@ -29,7 +29,7 @@ def estado() -> dict:
     ver = _uno("SELECT count(*) AS total, count(obs_c) AS verificadas, count(DISTINCT modelo) AS modelos, max(emitida) AS ult FROM verif_pred")
     push = _uno("SELECT (SELECT count(*) FROM push_subs) AS dispositivos, (SELECT count(*) FROM push_cola WHERE enviada IS NULL) AS pendientes, "
                 "(SELECT max(enviada) FROM push_cola) AS ult_envio")
-    return {
+    out = {
         "hora": ahora.strftime("%Y-%m-%dT%H:%MZ"),
         "claves": {k: bool(os.environ.get(v)) for k, v in {"aemet": "AEMET_API_KEY", "meteocat": "METEOCAT_API_KEY", "vapid": "MG_VAPID_PRIVATE_KEY"}.items()},
         "ponderar_media": os.environ.get("MG_PONDERAR") == "1",
@@ -40,3 +40,5 @@ def estado() -> dict:
         "verificacion": {"registros": ver.get("total"), "comparados": ver.get("verificadas"), "modelos": ver.get("modelos"), "ultimo_registro_hace_s": _edad(ver.get("ult"))},
         "push": {"dispositivos": push.get("dispositivos"), "pendientes": push.get("pendientes"), "ultimo_envio_hace_s": _edad(push.get("ult_envio"))},
     }
+    out["alertas"] = vigilante.alertas(out)
+    return out

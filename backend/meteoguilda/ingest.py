@@ -10,7 +10,7 @@ import os
 import socket
 import time
 
-from . import db, store
+from . import configuracion, db, store
 from .aprs import parse_packet
 from .places import PLACES
 from .qc import range_ok
@@ -34,6 +34,8 @@ FILTER = filtro(os.environ.get("MG_APRS_FILTER"))
 
 
 def run() -> None:
+    for problema in configuracion.avisos():
+        log.warning("configuración sospechosa: %s", problema)
     db.init_schema()
     backoff = 5
     while True:

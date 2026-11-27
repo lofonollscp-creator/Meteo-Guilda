@@ -24,7 +24,7 @@ from . import ventanas as ventanas_mod
 from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
-from . import push, memoria, estado as estado_mod
+from . import push, memoria, configuracion, estado as estado_mod
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -186,6 +186,8 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(db.init_schema)
     except Exception as e:  # noqa: BLE001
         log.warning("PostGIS no disponible (%s); estaciones y repetidores desactivados", e)
+    for problema in configuracion.avisos():
+        log.warning("configuración sospechosa: %s", problema)
     tasks = []
     if os.environ.get("MG_PREGEN") == "1":
         tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
