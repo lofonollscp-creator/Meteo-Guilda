@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import asyncio
 import logging
 import os
 import tarfile
@@ -23,6 +24,9 @@ NIVEL = {"minor": 1, "moderate": 1, "severe": 2, "extreme": 3}          # amaril
 COLOR = {1: "amarillo", 2: "naranja", 3: "rojo"}
 _cache: tuple[float, list[dict]] = (0, [])
 TTL = 900
+REINTENTO_S = 300        # tras un fallo (p. ej. 429 de AEMET) no se vuelve a llamar hasta pasado este tiempo: antes cada visita reintentaba y empeoraba el límite
+_hasta = 0.0             # no reintentar antes de este instante
+_lock: asyncio.Lock | None = None
 
 
 def in_polygon(lat: float, lon: float, ring: list[tuple[float, float]]) -> bool:
@@ -101,21 +105,40 @@ async def _bajar(client: httpx.AsyncClient, key: str) -> list[dict]:
 
 
 async def todos(client: httpx.AsyncClient) -> list[dict] | None:
-    """Avisos vigentes de AEMET (None sin clave o si falla la descarga; caché de 15 min)."""
-    global _cache
+    """Avisos vigentes de AEMET (None sin clave o si nunca se pudo descargar; caché de 15 min).
+    Si la descarga falla se sigue sirviendo la última lista buena y se espera 5 min (o lo que pida `Retry-After`) antes de reintentar."""
+    global _cache, _hasta, _lock
     key = os.environ.get("AEMET_API_KEY")
     if not key:
         return None
-    if time.time() - _cache[0] < TTL:
+    ahora_s = time.time()
+    if ahora_s - _cache[0] < TTL:
         return _cache[1]
-    try:
-        lista = await _bajar(client, key)
-    except (httpx.HTTPError, ValueError, ET.ParseError) as e:
-        log.warning("avisos AEMET: %s", e)
-        return _cache[1] if _cache[1] else None
-    ahora = datetime.now(timezone.utc)
-    _cache = (time.time(), [a for a in lista if vigente(a, ahora)])
-    return _cache[1]
+    if ahora_s < _hasta:
+        return _cache[1] if _cache[0] else None
+    if _lock is None:
+        _lock = asyncio.Lock()
+    async with _lock:                                    # una sola descarga a la vez; las demás peticiones esperan y reutilizan
+        if time.time() - _cache[0] < TTL:
+            return _cache[1]
+        if time.time() < _hasta:
+            return _cache[1] if _cache[0] else None
+        try:
+            lista = await _bajar(client, key)
+        except (httpx.HTTPError, ValueError, ET.ParseError) as e:
+            espera = REINTENTO_S
+            r = getattr(e, "response", None)
+            try:
+                espera = max(60, min(3600, int(r.headers.get("retry-after")))) if r is not None and r.headers.get("retry-after") else espera
+            except ValueError:
+                pass
+            _hasta = time.time() + espera
+            log.warning("avisos AEMET: %s (se reintenta en %d s)", str(e).split("\n")[0][:140], espera)
+            return _cache[1] if _cache[0] else None
+        ahora = datetime.now(timezone.utc)
+        _cache = (time.time(), [a for a in lista if vigente(a, ahora)])
+        _hasta = 0.0
+        return _cache[1]
 
 
 def enlaces(lat: float, lon: float) -> list[dict]:

@@ -36,3 +36,31 @@ def test_sin_clave_no_se_inventa_nada_y_los_enlaces_dependen_del_lugar():
 def test_un_aviso_caducado_no_es_vigente():
     a = {"hasta": "2020-01-01T00:00:00+01:00"}
     assert not avisos.vigente(a, datetime.now(timezone.utc)) and avisos.vigente({"hasta": None}, datetime.now(timezone.utc))
+
+
+def test_fallo_de_aemet_no_se_reintenta_en_cada_visita(monkeypatch):
+    """Un 429 de AEMET no debe repetirse en cada petición: se sirve lo último bueno y se espera antes de reintentar."""
+    import asyncio
+    import time
+    import httpx
+    monkeypatch.setenv("AEMET_API_KEY", "x")
+    llamadas = []
+
+    async def mal(client, key):
+        llamadas.append(1)
+        raise httpx.HTTPStatusError("429", request=httpx.Request("GET", "https://x"), response=httpx.Response(429, headers={"retry-after": "120"}))
+
+    monkeypatch.setattr(avisos, "_bajar", mal)
+    monkeypatch.setattr(avisos, "_lock", None)
+    monkeypatch.setattr(avisos, "_hasta", 0.0)
+    monkeypatch.setattr(avisos, "_cache", (0, []))
+    assert asyncio.run(avisos.todos(None)) is None          # nunca hubo datos: «no disponible»
+    monkeypatch.setattr(avisos, "_lock", None)              # un lock nuevo por cada asyncio.run de la prueba
+    assert asyncio.run(avisos.todos(None)) is None
+    assert len(llamadas) == 1                                 # el segundo intento ni llama a AEMET
+    assert 100 < avisos._hasta - time.time() <= 120          # respeta Retry-After
+    bueno = [{"id": "a"}]                                     # con una lista buena guardada, se sigue sirviendo aunque falle
+    monkeypatch.setattr(avisos, "_cache", (time.time() - avisos.TTL - 1, bueno))
+    monkeypatch.setattr(avisos, "_hasta", 0.0)
+    monkeypatch.setattr(avisos, "_lock", None)
+    assert asyncio.run(avisos.todos(None)) == bueno
