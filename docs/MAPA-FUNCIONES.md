@@ -26,7 +26,8 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Comparar lugares | `GET /api/compare` | `compare_places` |
 | Estado del mar | `GET /api/mar` | `get_sea_state` |
 | Sol y Luna | `GET /api/astro` | `sun_moon` |
-| Rutas con el tiempo a la hora de paso | `POST /api/route` | `plan_route` |
+| Rutas con el tiempo a la hora de paso (con «Semáforo por tramos» y equipo, campo `salida_por_tramos`) | `POST /api/route` | `plan_route` |
+| Planificador de salidas por tramos: monte, carretera o mar («Navegando»), con ruta guardada o puntos | `POST /api/salidas` | `plan_outing` |
 | **Mi ubicación** (botón «Usar mi ubicación», nombre del sitio) | `GET/PUT /api/me/settings` (campo `home`), `GET /api/reverse` | `get_my_location`, `set_my_location`, `reverse_geocode` |
 | Previsión (y aire) de mi ubicación | `/api/raw` + `/api/air` con `home` | `get_forecast_here` (OAuth) |
 

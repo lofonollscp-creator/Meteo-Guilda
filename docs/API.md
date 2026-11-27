@@ -22,7 +22,8 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/snapshot?pts=lat,lon;lat,lon` | Instantánea de hasta 15 puntos |
 | `GET /api/stations?south=&west=&north=&east=` | Estaciones APRS con calidad |
 | `GET /api/observations?lat=&lon=&km=` | Estaciones cercanas a un punto |
-| `POST /api/route` | Ruta (a pie/coche/GPX) con meteo a la hora de paso, riesgo y ventanas |
+| `POST /api/route` | Ruta (a pie/coche/GPX) con meteo a la hora de paso, riesgo y ventanas; `salida_por_tramos` trae el semáforo por tramos (perfil monte o carretera) y el equipo sugerido |
+| `POST /api/salidas` | Planificador de salidas: `{perfil: monte\|carretera\|mar, ruta_id? \| waypoints, depart?, nudos?}` → semáforo por tramo con motivos, tramos críticos, mejor ventana (36 h) y equipo sugerido. Reglas, no IA |
 | `GET /api/astro?lat=&lon=` | Sol (orto, ocaso, crepúsculos) y Luna |
 
 ## Radio

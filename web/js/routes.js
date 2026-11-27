@@ -3,7 +3,7 @@ import { renderCharts, renderProfile } from "./charts.js";
 import { icon } from "./icons.js";
 import { aiOn } from "./me.js";
 
-let ctx, mode = "foot", wps, gpx = null, gpxName = "", depart, ia = false, picking = -1, result = null, recents = LS.get("mg-routes", []), hoverM = null, busy = false;
+let knots = 5, ctx, mode = "foot", wps, gpx = null, gpxName = "", depart, ia = false, picking = -1, result = null, recents = LS.get("mg-routes", []), hoverM = null, busy = false;
 const blank = () => [{ label: "", lat: null, lon: null }, { label: "", lat: null, lon: null }];
 const pad = (n) => String(n).padStart(2, "0");
 const localInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -41,17 +41,18 @@ function drawWps() {
 function paintForm() {
   const f = $("#form");
   f.innerHTML = `
-    <div class="field"><span class="lbl">Modo</span><span class="seg" role="group"><button type="button" data-m="foot" aria-pressed="${mode === "foot"}">${icon("walk", 16)} A pie</button><button type="button" data-m="car" aria-pressed="${mode === "car"}">${icon("car", 16)} En coche</button></span></div>
+    <div class="field"><span class="lbl">Modo</span><span class="seg" role="group"><button type="button" data-m="foot" aria-pressed="${mode === "foot"}">${icon("walk", 16)} A pie</button><button type="button" data-m="car" aria-pressed="${mode === "car"}">${icon("car", 16)} En coche</button><button type="button" data-m="sea" aria-pressed="${mode === "sea"}">${icon("wave", 16)} Navegando</button></span></div>
+    ${mode === "sea" ? `<div class="field"><label for="kn">Velocidad (nudos)</label><input id="kn" type="number" min="1" max="30" step="0.5" value="${knots}"></div>` : ""}
     ${gpx ? `<div class="field"><span class="lbl">Track importado</span><div class="row"><span class="badge">${esc(gpxName)}</span><button class="btn ghost sm" type="button" id="gpx-x">Quitar</button></div></div>` :
       `<div class="field"><span class="lbl">Puntos</span>${wps.map((w, i) => `<div class="wp ${i === wps.length - 1 ? "end" : ""}"><span class="dot"></span>
         <div class="wsearch"><input type="text" data-i="${i}" value="${esc(w.label)}" placeholder="${i === 0 ? "Origen" : i === wps.length - 1 ? "Destino" : "Parada"}" autocomplete="off"><div class="results" hidden></div></div>
         <span class="row" style="gap:6px"><button class="mapbtn" type="button" data-pick="${i}">${picking === i ? "Toca el mapa…" : "Mapa"}</button>${wps.length > 2 && i > 0 && i < wps.length - 1 ? `<button class="icon-btn" type="button" data-rm="${i}" aria-label="Quitar parada" style="width:26px;height:26px">${icon("x", 14)}</button>` : ""}</span></div>`).join("")}
       <div class="row"><button class="btn ghost sm" type="button" id="addwp">${icon("plus", 14)} Parada</button><button class="btn ghost sm" type="button" id="swap">${icon("swap", 14)} Invertir</button>
-        <label class="btn ghost sm" style="cursor:pointer">${icon("upload", 14)} Importar GPX<input type="file" id="gpxf" accept=".gpx,application/gpx+xml,text/xml" hidden></label></div></div>`}
+        ${mode === "sea" ? "" : `<label class="btn ghost sm" style="cursor:pointer">${icon("upload", 14)} Importar GPX<input type="file" id="gpxf" accept=".gpx,application/gpx+xml,text/xml" hidden></label>`}</div></div>`}
     <div class="field"><label for="dep">Salida</label><input id="dep" type="datetime-local" value="${depart}"></div>
     <label class="check"><input type="checkbox" id="ia" ${ia ? "checked" : ""}> Añadir lectura de IA (usa cuota gratuita)</label>
     <button class="btn" id="go" type="button" ${busy ? "disabled" : ""} style="width:100%">${busy ? "Calculando…" : "Calcular ruta y meteo"}</button>`;
-  $$("[data-m]", f).forEach((b) => b.addEventListener("click", () => { mode = b.dataset.m; paintForm(); }));
+  $$("[data-m]", f).forEach((b) => b.addEventListener("click", () => { mode = b.dataset.m; if (mode === "sea") gpx = null; paintForm(); }));
   $$("[data-pick]", f).forEach((b) => b.addEventListener("click", () => { picking = picking === +b.dataset.pick ? -1 : +b.dataset.pick; ctx.map.getCanvas().style.cursor = picking >= 0 ? "crosshair" : ""; ctx.pane("map"); paintForm(); }));
   $$("[data-rm]", f).forEach((b) => b.addEventListener("click", () => { wps.splice(+b.dataset.rm, 1); paintForm(); drawWps(); }));
   $("#addwp", f)?.addEventListener("click", () => { wps.splice(wps.length - 1, 0, { label: "", lat: null, lon: null }); paintForm(); });
@@ -63,6 +64,7 @@ function paintForm() {
     gpx = await file.text(); gpxName = file.name; paintForm();
   });
   $("#dep", f).addEventListener("change", (e) => (depart = e.target.value));
+  $("#kn", f)?.addEventListener("change", (e) => (knots = Math.min(30, Math.max(1, +e.target.value || 5))));
   $("#ia", f).addEventListener("change", (e) => (ia = e.target.checked));
   $("#go", f).addEventListener("click", () => calc());
   $$(".wsearch input", f).forEach(wireSearch);
@@ -84,7 +86,7 @@ function wireSearch(inp) {
   inp.addEventListener("blur", () => setTimeout(() => (box.hidden = true), 150));
 }
 function paintRecents() {
-  $("#recents").innerHTML = recents.length ? `<div class="group-label">Recientes</div><div class="recent">${recents.map((r, i) => `<button type="button" data-r="${i}">${esc(r.a)} ${icon("right", 12)} ${esc(r.b)} <small>· ${r.mode === "foot" ? "a pie" : "coche"}</small></button>`).join("")}</div>` : "";
+  $("#recents").innerHTML = recents.length ? `<div class="group-label">Recientes</div><div class="recent">${recents.map((r, i) => `<button type="button" data-r="${i}">${esc(r.a)} ${icon("right", 12)} ${esc(r.b)} <small>· ${r.mode === "foot" ? "a pie" : r.mode === "car" ? "coche" : "mar"}</small></button>`).join("")}</div>` : "";
   $$("[data-r]", $("#recents")).forEach((b) => b.addEventListener("click", () => { const r = recents[+b.dataset.r]; mode = r.mode; wps = JSON.parse(JSON.stringify(r.wps)); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
 }
 
@@ -95,7 +97,7 @@ async function paintSaved() {
   try { saved = (await api("/api/rutas")).rutas; } catch { saved = []; }
   if (!$("#saved")) return;
   box.innerHTML = saved.length ? `<div class="group-label">Mis rutas guardadas</div><div class="recent">${saved.map((r, i) => `<span class="row" style="gap:4px;flex-wrap:nowrap"><button type="button" data-sv="${i}">${esc(r.nombre)} <small>· ${r.modo === "foot" ? "a pie" : r.modo === "car" ? "coche" : "mar"}</small></button><button class="icon-btn" type="button" data-svx="${r.id}" aria-label="Borrar la ruta ${esc(r.nombre)}" style="width:26px;height:26px">${icon("x", 14)}</button></span>`).join("")}</div>` : "";
-  $$("[data-sv]", box).forEach((b) => b.addEventListener("click", () => { const r = saved[+b.dataset.sv]; mode = r.modo === "car" ? "car" : "foot"; wps = r.waypoints.map((w) => ({ label: w.nombre || `${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}`, lat: w.lat, lon: w.lon })); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
+  $$("[data-sv]", box).forEach((b) => b.addEventListener("click", () => { const r = saved[+b.dataset.sv]; mode = r.modo; wps = r.waypoints.map((w) => ({ label: w.nombre || `${w.lat.toFixed(4)}, ${w.lon.toFixed(4)}`, lat: w.lat, lon: w.lon })); gpx = null; paintForm(); drawWps(); ctx.fit(wps.map((w) => [w.lon, w.lat])); calc(); }));
   $$("[data-svx]", box).forEach((b) => b.addEventListener("click", async () => { if (!confirm("¿Borrar esta ruta guardada? También se borran sus alertas.")) return; try { await api(`/api/rutas/${b.dataset.svx}`, { method: "DELETE" }); paintSaved(); } catch (e) { ctx.toast(e.message); } }));
 }
 async function saveRoute() {
@@ -121,7 +123,10 @@ async function calc(opts = {}) {
   ctx.pane("detail");
   ctx.colb.innerHTML = `<div class="skeleton" style="width:50%;height:34px"></div><div class="skeleton" style="height:90px;margin:20px 0"></div><div class="skeleton" style="height:190px"></div>`;
   try {
-    result = await api("/api/route", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (mode === "sea") {
+      const out = await api("/api/salidas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ perfil: "mar", waypoints: body.waypoints, depart: body.depart, nudos: knots }) });
+      result = { ...out, modo: "sea", geometria: (out.muestras || []).map((m) => [m.lon, m.lat]), muestras: out.muestras || [] };
+    } else result = await api("/api/route", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!gpx) { recents = [{ a: wps[0].label || "Origen", b: wps.at(-1).label || "Destino", mode, wps }, ...recents.filter((r) => r.a !== wps[0].label || r.b !== wps.at(-1).label)].slice(0, 5); LS.set("mg-routes", recents); paintRecents(); }
     paintResult(); drawRoute();
   } catch (e) {
@@ -176,7 +181,31 @@ const timeOf = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit"
 function gpxOf(r) {
   return `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Meteo Guilda" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Meteo Guilda ${r.distancia_km} km</name><trkseg>${r.geometria.map(([lo, la]) => `<trkpt lat="${la}" lon="${lo}"/>`).join("")}</trkseg></trk></gpx>`;
 }
+/* Semáforo por tramos (reglas, no IA): ver backend/meteoguilda/salidas.py */
+function tramosHTML(t) {
+  if (!t) return "";
+  if (!t.disponible) return `<section class="sec"><div class="label">Semáforo por tramos</div><p class="empty">${esc(t.motivo || "Sin datos")}</p></section>`;
+  const lvn = (n) => `<span class="pill lv${n}"><i></i>${LV[n]}</span>`;
+  const mv = t.mejor_ventana;
+  return `<section class="sec"><div class="label">Semáforo por tramos <em>${{ monte: "monte", carretera: "carretera", mar: "mar" }[t.perfil]} · reglas, no IA</em></div>
+    <div class="badges">${lvn(t.nivel)}${mv ? `<span class="badge">Mejor salida: ${esc(fmtDT(mv.salida))} (${LV[mv.nivel].toLowerCase()})</span>` : ""}</div>
+    ${t.tramos_criticos?.length ? `<p class="empty">Tramos a vigilar: ${t.tramos_criticos.map(esc).join(" · ")}</p>` : ""}
+    <div class="tl">${t.tramos.map((x) => `<div class="tl-row"><span class="t">${x.desde ? timeOf(x.desde) : ""}</span><span class="lv lv${x.nivel}" title="${esc(x.texto)}"></span><div><div class="w">Tramo ${x.n} · km ${nf1.format(x.desde_km)}–${nf1.format(x.hasta_km)}${x.cota_m && x.cota_m[0] != null ? ` · ${nf.format(x.cota_m[0])}–${nf.format(x.cota_m[1])} m` : ""}</div><div class="why">${x.motivos.length ? esc(x.motivos.join(" · ")) : "Sin incidencias"}</div></div></div>`).join("")}</div>
+    ${t.equipo?.length ? `<div class="cols" style="margin-top:12px"><div><h3>Equipo sugerido</h3><ul>${t.equipo.map((e) => `<li>${esc(e)}</li>`).join("")}</ul></div></div>` : ""}</section>`;
+}
+function paintSea() {
+  const r = result;
+  ctx.colb.innerHTML = `<div class="d-head"><div><h1>Travesía · ${nf1.format(r.distancia_mn)} millas</h1><p>Salida ${esc(fmtDT(r.salida))} · ${fmtMin(r.duracion_min)} a ${nf1.format(r.velocidad_nudos)} nudos</p></div>
+    <div class="d-actions"><button class="btn ghost sm" id="rt-save" type="button">${icon("plus", 14)} Guardar ruta</button></div></div>
+    ${r.sin_datos_de_oleaje ? '<p class="empty">Sin datos de oleaje en estos puntos (¿tierra adentro?): el semáforo solo usa el viento.</p>' : ""}
+    ${tramosHTML(r)}
+    <section class="sec"><div class="label">Mejores ventanas de salida <em>próximas 36 h</em></div>${r.ventanas?.length ? `<div class="windows">${r.ventanas.map((w) => `<button class="win" type="button" data-dep="${esc(w.salida)}"><span class="pill lv${w.nivel}"><i></i>${LV[w.nivel]}</span><b>${esc(fmtDT(w.salida))}</b><small>${w.motivos.length ? esc(w.motivos.slice(0, 2).join(" · ")) : "Sin incidencias previstas"}</small></button>`).join("")}</div>` : '<p class="empty">Sin datos suficientes.</p>'}</section>
+    <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg><span>${esc(r.nota || "")}</span></div>`;
+  $$("[data-dep]", ctx.colb).forEach((b) => b.addEventListener("click", () => { depart = localInput(new Date(b.dataset.dep)); paintForm(); calc(); }));
+  $("#rt-save")?.addEventListener("click", saveRoute);
+}
 function paintResult() {
+  if (result.modo === "sea") return paintSea();
   const r = result, S = r.muestras, ok = r.nivel_global != null;
   const eta = ok ? timeOf(new Date(new Date(r.salida).getTime() + r.duracion_min * 60000).toISOString()) : "–";
   const win = (w) => `<button class="win" type="button" data-dep="${esc(w.salida)}" aria-pressed="${w.salida.slice(0, 13) === (r.salida || "").slice(0, 13)}"><span class="pill lv${w.nivel}"><i></i>${LV[w.nivel]}</span><b>${esc(fmtDT(w.salida))}</b><small>${w.motivos.length ? esc(w.motivos.slice(0, 2).join(" · ")) : "Sin incidencias previstas"}</small></button>`;
@@ -191,6 +220,8 @@ function paintResult() {
     ${r.ascenso_m || r.descenso_m ? `<div class="stat"><span class="lbl">Ascenso</span><span class="num">+${nf.format(r.ascenso_m)}<small>m</small></span></div><div class="stat"><span class="lbl">Descenso</span><span class="num">−${nf.format(r.descenso_m)}<small>m</small></span></div>` : ""}
   </div>
   ${r.modo === "foot" ? '<p class="empty" style="margin-top:-6px">Duración a pie: 5 km/h + 1 h por cada 600 m de ascenso (regla de Naismith); el tuyo puede variar.</p>' : ""}
+
+  ${tramosHTML(r.salida_por_tramos)}
 
   <section class="sec"><div class="label">Mejores ventanas de salida <em>próximas 36 h</em></div>
     ${r.ventanas.length ? `<div class="windows">${r.ventanas.map(win).join("")}</div>` : '<p class="empty">No hay datos meteorológicos suficientes para proponer ventanas.</p>'}</section>

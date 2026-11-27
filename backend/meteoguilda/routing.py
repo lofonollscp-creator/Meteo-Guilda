@@ -201,7 +201,7 @@ def at(h: dict, t: datetime, utc_times: list[datetime]) -> dict | None:
     g = lambda k: h[k][i] if h.get(k) else None  # noqa: E731
     return {"temp": g("temperature_2m"), "rain": g("precipitation"), "wind": g("wind_speed_10m"),
             "gust": g("wind_gusts_10m"), "dir": g("wind_direction_10m"), "cloud": g("cloud_cover"),
-            "snow": g("snowfall"), "cape": g("cape"), "iso": g("freezing_level_height"), "time": h["time"][i]}
+            "snow": g("snowfall"), "cape": g("cape"), "iso": g("freezing_level_height"), "rh": g("relative_humidity_2m"), "time": h["time"][i]}
 
 
 def _nearest(ts: list[datetime], t: datetime) -> int:
@@ -342,7 +342,7 @@ async def plan(client: httpx.AsyncClient, *, waypoints: list[tuple[float, float]
             row.update({"t": e["t"], "nivel": e["level"], "motivos": e["why"],
                         "meteo": {"temp_c": _r(w["temp"]), "viento_kmh": _r(w["wind"], 3.6), "racha_kmh": _r(w["gust"], 3.6),
                                   "viento_dir": w["dir"], "lluvia_mm": _r(w["rain"], 1, 1), "nieve_cm": _r(w["snow"], 1, 1),
-                                  "nubes_pct": _r(w["cloud"]), "cape_jkg": _r(w["cape"]), "isocero_m": _r(w["iso"])}})
+                                  "nubes_pct": _r(w["cloud"]), "cape_jkg": _r(w["cape"]), "isocero_m": _r(w["iso"]), "humedad_pct": _r(w.get("rh"))}})
         out_samples.append(row)
     return {
         "modo": mode, "distancia_km": round(total, 1), "duracion_min": round(total_min), "ascenso_m": asc, "descenso_m": desc,

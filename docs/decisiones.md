@@ -34,3 +34,6 @@ token Bearer y por stdio para uso local.
 ## Riesgo de rutas: reglas, no IA
 El nivel de riesgo (verde/ámbar/rojo) y las mejores ventanas se calculan con reglas explícitas y auditables
 (`routing.py`); la IA solo redacta el briefing y no puede cambiar los niveles.
+El planificador de salidas por tramos (`salidas.py`, nov-2026) sigue la misma regla: añade reglas por perfil — monte (cota de nieve frente a la
+altitud del tramo, sensación térmica, niebla en cotas altas, tormentas por la tarde), carretera (hielo, niebla, viento lateral, noche con lluvia) y mar
+(oleaje, viento y rachas en nudos, tormenta, noche) — y el equipo sugerido también sale de reglas comprobables, no de un modelo de lenguaje.

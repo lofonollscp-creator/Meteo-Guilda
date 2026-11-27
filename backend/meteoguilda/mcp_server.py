@@ -646,6 +646,22 @@ async def set_my_verified_places(ctx: Context, places: list[dict]) -> dict:
     return await _as(_need_who(ctx), "PUT", "/api/verificacion/mis-lugares", json={"lugares": places})
 
 
+# ---------- Planificador de salidas por tramos ----------
+@mcp.tool()
+async def plan_outing(ctx: Context, kind: Literal["monte", "carretera", "mar"] | None = None, route_id: int | None = None, waypoints: list[dict] | None = None,
+                      depart_iso: str | None = None, knots: float = 5) -> dict:
+    """Planifica una salida por tramos: semáforo de riesgo por tramo (0 verde, 1 ámbar, 2 rojo) con sus motivos, tramos críticos, mejor ventana de salida
+    en 36 h y equipo sugerido. `kind`: monte (a pie, con cota de nieve, sensación térmica, niebla y tormentas), carretera (hielo, niebla, viento lateral) o
+    mar (línea recta a `knots` nudos, oleaje y viento). Usa `route_id` (ruta guardada; requiere OAuth) o `waypoints` [{lat, lon}…]. Reglas, no IA."""
+    body = {"perfil": kind, "ruta_id": route_id, "waypoints": waypoints or [], "depart": depart_iso, "nudos": knots}
+    if route_id is not None:
+        res = await _as(_need_who(ctx), "POST", "/api/salidas", json=body)
+    else:
+        res = await _call("POST", "/api/salidas", json=body)
+    res.pop("muestras", None)
+    return await _quiza_enlace(ctx, "salida", res)
+
+
 class _Bearer:
     """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
     /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""

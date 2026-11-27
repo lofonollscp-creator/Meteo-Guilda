@@ -25,7 +25,7 @@ from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
 from . import push, reglas, memoria, configuracion, uso_ia, estado as estado_mod
-from . import alertas, descargas, rutas_guardadas, qsl_servicios
+from . import alertas, descargas, rutas_guardadas, qsl_servicios, salidas
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -758,6 +758,7 @@ async def route(request: Request, req: RouteReq):
     except Exception as e:  # noqa: BLE001
         log.warning("balizas/repetidores en ruta: %s", e)
         res["balizas"], res["repetidores"] = [], []
+    res["salida_por_tramos"] = salidas.analizar(res, "monte" if req.mode == "foot" else "carretera")      # semáforo por tramos y equipo (reglas, sin coste)
     res["lectura"] = None
     s_cfg = account.config_for(request) if req.ia else None
     if req.ia and s_cfg[0]["ai_enabled"]:
@@ -771,6 +772,48 @@ async def route(request: Request, req: RouteReq):
         if out:
             res["lectura"] = {**out[0].model_dump(), "modelo_ia": out[1]}
     return res
+
+
+class SalidaReq(BaseModel):
+    ruta_id: int | None = None
+    waypoints: list[Pt] = Field(default_factory=list, max_length=10)
+    perfil: Literal["monte", "carretera", "mar"] | None = None
+    depart: datetime | None = None
+    nudos: float = Field(5, ge=1, le=30)
+
+
+@app.post("/api/salidas")
+async def salida_por_tramos(request: Request, req: SalidaReq):
+    """Planificador de salidas: semáforo de riesgo por tramo (reglas, no IA), mejor ventana y equipo sugerido para monte, carretera o mar.
+    Con `ruta_id` usa una ruta guardada (y su modo, si no das `perfil`); si no, `waypoints`. En mar, tramos en línea recta a `nudos`."""
+    limit(request, "route")
+    wps, perfil = [(p.lat, p.lon) for p in req.waypoints], req.perfil
+    nombre = None
+    if req.ruta_id is not None:
+        r = await asyncio.to_thread(rutas_guardadas.una, account.current(request)["sub"], req.ruta_id)
+        if not r:
+            raise HTTPException(404, "No existe esa ruta guardada")
+        wps, nombre = [(w["lat"], w["lon"]) for w in r["waypoints"]], r["nombre"]
+        perfil = perfil or {"foot": "monte", "car": "carretera", "sea": "mar"}[r["modo"]]
+    perfil = perfil or "monte"
+    if len(wps) < 2:
+        raise HTTPException(422, "Indica al menos dos puntos o una ruta guardada")
+    dep = req.depart if req.depart is None or req.depart.tzinfo else req.depart.replace(tzinfo=timezone.utc)
+    try:
+        if perfil == "mar":
+            out = await salidas.plan_mar(H(request), wps, dep, req.nudos)
+        else:
+            res = await routing.plan(H(request), waypoints=wps, gpx=None, mode=salidas.PERFILES[perfil], depart=dep)
+            try:
+                res["repetidores"] = await asyncio.to_thread(radio.repeaters_along, [(la, lo) for lo, la in res["geometria"]])
+            except Exception:  # noqa: BLE001
+                res["repetidores"] = []
+            out = {**salidas.analizar(res, perfil), **{k: res[k] for k in ("distancia_km", "duracion_min", "ascenso_m", "descenso_m", "salida", "ventanas")}}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except (httpx.HTTPError, RuntimeError) as e:
+        raise HTTPException(502, f"No se pudo calcular la salida: {e}") from e
+    return {**out, "ruta": nombre}
 
 
 # ---------- radio ----------
