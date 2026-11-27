@@ -13,6 +13,7 @@ Todo lo que sigue es **opcional y desactivado por defecto**, salvo la sesión (n
 | **Alertas de radio y salidas** (tipo, parámetros con el lugar a ~1 km, tope diario, silencio y zona horaria, títulos de lo enviado) | Avisar de lo que la persona pide | **Consentimiento** (las crea ella; llegan por las notificaciones) | `alertas`, `alertas_prefs`, `alertas_envios` | Hasta que las borre; lo enviado, **30 días** | Borrar en Ajustes → Avisos; borrar la cuenta |
 | Rutas guardadas (nombre y puntos de paso) | Alertas en ruta y planificador de salidas | Ejecución del servicio | `rutas_guardadas` | Hasta que la persona las borre (máx. 20) | Rutas → «Mis rutas guardadas»; borrar la cuenta |
 | **Credenciales de LoTW, eQSL y QRZ** (cifradas con Fernet; solo se muestra el usuario o los 4 últimos caracteres) | Subir contactos e importar confirmaciones | Consentimiento (las introduce ella, solo en la web) | `qsl_credenciales` | Hasta que las quite | «Quitar» en Radio → Cuaderno → Servicios; borrar la cuenta |
+| Lugares que pide verificar (hasta 5, redondeados a ~1 km, con su nombre) | Informe «Quién acierta más» en sus lugares | Ejecución del servicio (los elige ella) | `verif_extra_sub` (el lugar y sus datos de verificación son comunes) | Hasta que los quite | Quitar en el informe; borrar la cuenta |
 | Cuaderno QSL y favoritos | Funciones de radio y lugares | Ejecución del servicio | Perfil de sincronización (`profiles`, `qsos`) | Hasta que la persona los borre | Ajustes → Sincronización y API |
 
 ## Memoria del asistente (2.5)

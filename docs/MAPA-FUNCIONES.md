@@ -15,6 +15,9 @@ Regla de la casa: **todo lo que se puede hacer en la web se puede hacer también
 | Previsión de un lugar (datos de 8 modelos, resumen por reglas, observaciones) y botón ↻ recargar | `GET /api/forecast?place=` / `?lat=&lon=` (`&refresh=1`) | `get_ai_forecast` (`refresh`) |
 | Datos crudos con el valor de cada modelo (`por_modelo`) | `GET /api/raw?lat=&lon=` | `get_forecast_data` |
 | Gráfico «Contraste de modelos» | `por_modelo` en `/api/forecast` y `/api/raw` | `get_forecast_data` |
+| «Quién acierta más» (en Contraste de modelos: error de cada modelo a 24 h en la zona) | `GET /api/precision?lat=&lon=&dias=` | `model_accuracy` |
+| Botón «Quién acierta más: informe del mes» (por lugar y general, a 24 y 12 h, con el mes anterior) | `GET /api/verificacion/informe?mes=AAAA-MM` | `model_verification_report` (OAuth) |
+| Mis lugares verificados (hasta 5: este lugar, Mi ubicación o favoritos) | `GET/PUT /api/verificacion/mis-lugares` | `get_my_verified_places`, `set_my_verified_places` (OAuth) |
 | Lectura redactada por IA (botón «Generar lectura con IA», **a petición**) | `GET /api/forecast/ai?…` (`&solo_cache=1` no gasta nada) | `generate_ai_forecast` (OAuth) |
 | Mis lugares / tarjetas con instantánea | `GET /api/snapshot?pts=` | `get_snapshot` |
 | Observaciones reales (APRS, METAR, XEMA) | `GET /api/observations`, `GET /api/stations` | `get_nearby_observations`, `get_stations` |

@@ -37,7 +37,9 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/satellites` · `GET /api/satellites/passes?lat=&lon=&hours=&min_el=&sats=` | Satélites y sus pasos |
 | `GET /api/portable?lat=&lon=` | Mejores ventanas para operar en portátil |
 | `GET /api/avisos?lat=&lon=` | Avisos oficiales vigentes (AEMET) del punto + enlaces; requiere `AEMET_API_KEY` para los avisos |
-| `GET /api/precision?lat=&lon=&dias=` | Qué modelo acierta más la temperatura a 24 h en el lugar principal más cercano (≤ 60 km), frente a estaciones XEMA/METAR; vacío hasta reunir ≥ 8 comparaciones por modelo |
+| `GET /api/precision?lat=&lon=&dias=` | Qué modelo acierta más la temperatura a 24 h en un lugar extra verificado a ≤ 5 km o, si no, en el lugar principal más cercano (≤ 60 km), frente a estaciones XEMA/METAR; vacío hasta reunir ≥ 8 comparaciones por modelo |
+| `GET /api/verificacion/informe?mes=AAAA-MM` | Informe mensual por lugar (principales y los tuyos): ranking a 24 y 12 h, sesgo, % a ±2 °C, ganador y mes anterior; solo lee la base de datos |
+| `GET\|PUT /api/verificacion/mis-lugares` | Tus lugares extra a verificar (0-5; tope global de 40). Se consultan una vez cada 6 h y solo si la cuota diaria de Open-Meteo va por debajo del 60 % |
 | `GET /api/push/config` · `PUT\|DELETE /api/push/suscripcion` · `POST /api/push/estado\|paso\|prueba` | Notificaciones push (requieren sesión y `MG_VAPID_*`): suscribir el navegador con sus preferencias, recordar un paso de satélite 5 min antes y enviar una de prueba |
 | `GET /api/alertas` · `POST /api/alertas` · `PATCH\|DELETE /api/alertas/{id}` · `GET /api/alertas/{id}/comprobar` · `PUT /api/alertas/prefs` | Alertas de radio y salidas de la persona (tropo, HF, satélites, tiempo en el QTH o en una ruta guardada), con tope diario y horario de silencio; ver `alertas.py` |
 | `GET\|POST /api/rutas` · `GET\|DELETE /api/rutas/{id}` | Rutas guardadas de la persona (2-10 puntos, modo `foot`, `car` o `sea`; máximo 20) |

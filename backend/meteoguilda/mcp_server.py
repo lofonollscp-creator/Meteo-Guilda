@@ -617,6 +617,35 @@ async def qsl_import_confirmations(ctx: Context, service: Literal["lotw", "eqsl"
     return await _as(_need_who(ctx), "POST", f"/api/qsl/{service}/confirmaciones", headers=_auth(key), params={"desde_cero": from_scratch or None})
 
 
+# ---------- Verificación de modelos («Quién acierta más») ----------
+@mcp.tool()
+async def model_accuracy(lat: float, lon: float, days: int = 30) -> dict:
+    """Qué modelo ha acertado más la temperatura a 24 h en la zona (lugar extra verificado a ≤ 5 km o lugar principal a ≤ 60 km), en los últimos `days`
+    días (7-90), frente a estaciones oficiales. `disponible=false` si aún no hay datos."""
+    return await _call("GET", "/api/precision", params={"lat": lat, "lon": lon, "dias": days})
+
+
+@mcp.tool()
+async def model_verification_report(ctx: Context, month: str | None = None) -> dict:
+    """Informe mensual «Quién acierta más» (`month` = AAAA-MM; por defecto el mes en curso): por cada lugar principal y cada lugar extra tuyo, ranking de
+    modelos por error medio de la temperatura a 24 y 12 h, sesgo, % de aciertos a ±2 °C, el ganador y su error del mes anterior; y un ranking general.
+    Solo lee lo guardado (no gasta consultas). Requiere OAuth."""
+    return await _quiza_enlace(ctx, f"verificacion-{month or 'mes'}", await _as(_need_who(ctx), "GET", "/api/verificacion/informe", params={"mes": month}))
+
+
+@mcp.tool()
+async def get_my_verified_places(ctx: Context) -> dict:
+    """Tus lugares extra (hasta 5) en los que se comprueba qué modelo acierta más, con cuántas comparaciones llevan. Requiere OAuth."""
+    return await _as(_need_who(ctx), "GET", "/api/verificacion/mis-lugares")
+
+
+@mcp.tool()
+async def set_my_verified_places(ctx: Context, places: list[dict]) -> dict:
+    """Sustituye tus lugares extra a verificar: lista de 0-5 {lat, lon, nombre?} (tus favoritos o tu ubicación). Se consultan una vez cada 6 h, solo si la cuota
+    de Open-Meteo va holgada, y hacen falta estaciones oficiales a ≤ 25 km para comparar. Requiere OAuth."""
+    return await _as(_need_who(ctx), "PUT", "/api/verificacion/mis-lugares", json={"lugares": places})
+
+
 class _Bearer:
     """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
     /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""

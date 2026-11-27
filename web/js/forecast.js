@@ -4,6 +4,7 @@ import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
 import { aiOn, onChange as onMe, me } from "./me.js";
 import { getQth, hasQth, label as qthLabel, hashOf as qthHash, locate, clearQth, onQth, ensureName } from "./qth.js";
+import * as verificacion from "./verificacion.js";
 
 let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null, offQth = null, locating = false;
 const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
@@ -349,7 +350,7 @@ function render(d) {
   <section class="sec"><div class="label">Contraste de modelos <em>¿coinciden?</em>
       <span class="seg" role="group" aria-label="Variable">${[["temp_c", "Temp"], ["lluvia_mm", "Lluvia"], ["viento_kmh", "Viento"], ["racha_kmh", "Racha"], ["nubes_pct", "Nubes"]]
         .filter(([k]) => c.por_modelo?.[k]).map(([k, l]) => `<button type="button" data-mv="${k}" aria-pressed="${mvar === k}">${l}</button>`).join("")}</span></div>
-    <p class="empty" id="mnote"></p><div class="mchips" id="mchips"></div><div id="mchart" class="chart"></div><div id="precision" class="prec" hidden></div></section>
+    <p class="empty" id="mnote"></p><div class="mchips" id="mchips"></div><div id="mchart" class="chart"></div><div id="precision" class="prec" hidden></div><button class="btn ghost sm" type="button" id="vf-open" style="margin-top:8px">Quién acierta más: informe del mes</button></section>
 
   <section class="sec"><div class="label">Viento y cielo</div><div class="grid2">
     <div class="card rosebox"><h3>${icon("compass", 16)} Rosa de los vientos <span class="sub">próximos 5 días</span></h3><div id="rose"></div><p class="empty" style="font-size:12px;margin-top:6px">Cada pétalo: de dónde sopla y cuánto tiempo; color = velocidad media.</p></div>
@@ -383,6 +384,7 @@ function render(d) {
   loadAvisos(la, lo, req);
   loadOficial(la, lo, req, c.dias);
   loadPrecision(la, lo, req);
+  $("#vf-open")?.addEventListener("click", () => verificacion.open({ lat: la, lon: lo, nombre: lug.name }));
   lazyLoad("#act-sec", () => loadActivities(la, lo));
   lazyLoad("#air-sec", () => loadAir(la, lo));
   loadMar(la, lo);

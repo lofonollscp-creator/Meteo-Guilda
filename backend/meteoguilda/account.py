@@ -211,5 +211,7 @@ def delete_me(request: Request):
     alertas.borrar_de(user["sub"])       # alertas de radio y salidas, sus límites y lo enviado
     rutas_guardadas.borrar_de(user["sub"])
     qsl_servicios.borrar_de(user["sub"])     # credenciales de LoTW, eQSL y QRZ
+    from . import verif
+    verif.borrar_de(user["sub"])             # lugares extra que pidió verificar
     with db.pool().connection() as con:
         con.execute("DELETE FROM user_settings WHERE sub=%s", [user["sub"]])   # ajustes, claves y memoria del asistente

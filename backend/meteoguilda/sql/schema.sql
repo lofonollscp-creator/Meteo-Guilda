@@ -173,3 +173,13 @@ CREATE TABLE IF NOT EXISTS descargas (
   id BIGSERIAL PRIMARY KEY, sub TEXT, nombre TEXT NOT NULL, tipo TEXT NOT NULL, contenido BYTEA NOT NULL, creada TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS descargas_creada ON descargas (creada);
+
+-- Verificación en lugares extra que pide cada persona (favoritos o Mi ubicación; máx. 5 por persona y 40 en total; ver verif.py)
+CREATE TABLE IF NOT EXISTS verif_extra (
+  clave TEXT PRIMARY KEY, lat DOUBLE PRECISION NOT NULL, lon DOUBLE PRECISION NOT NULL, nombre TEXT NOT NULL, creado TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS verif_extra_sub (
+  sub TEXT NOT NULL, clave TEXT NOT NULL REFERENCES verif_extra(clave) ON DELETE CASCADE, creado TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (sub, clave)
+);
+CREATE INDEX IF NOT EXISTS verif_pred_lugar ON verif_pred (lugar, lead_h, valida);

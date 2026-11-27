@@ -168,6 +168,20 @@ async def pregen_loop(http: httpx.AsyncClient):
         await asyncio.sleep(SUMMARY_TTL - 20 * len(PLACES))
 
 
+async def verif_loop(http: httpx.AsyncClient):
+    """Cada 5 min: a las horas de registro consulta los lugares extra (una vez, con la cuota holgada); cada 30 min completa lo verificable."""
+    t = 0
+    while True:
+        try:
+            await verif.registrar_extras(lambda la, lo: get_summary(http, la, lo, force=True), cuota_om.estado)
+            if t % 6 == 3:
+                await verif.verificar(http)
+        except Exception as e:  # noqa: BLE001
+            log.warning("verificación (lugares extra): %s", e)
+        t += 1
+        await asyncio.sleep(300)
+
+
 async def repeaters_loop(http: httpx.AsyncClient):
     """Sincroniza repetidores (BrandMeister + HearHam) al arrancar si hace falta y cada 24 h."""
     while True:
@@ -218,6 +232,7 @@ async def lifespan(app: FastAPI):
     tasks = []
     if os.environ.get("MG_PREGEN") == "1":
         tasks.append(asyncio.create_task(pregen_loop(app.state.http)))
+        tasks.append(asyncio.create_task(verif_loop(app.state.http)))
         tasks.append(asyncio.create_task(push.bucle(app.state.http, (lambda la, lo: get_summary(app.state.http, la, lo), lambda la, lo: mar_mod.fetch(app.state.http, la, lo)),
                                                     app.state.fuentes_alertas)))      # notificaciones push (un solo proceso: el que tiene MG_PREGEN)
     if os.environ.get("MG_REPEATERS_SYNC") == "1":
@@ -344,12 +359,56 @@ async def avisos(request: Request, lat: float = Query(ge=-90, le=90), lon: float
 async def precision(request: Request, lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180), dias: int = Query(30, ge=7, le=90)):
     """Qué modelo ha acertado más la temperatura (a 24 h vista) en el lugar principal más cercano (≤ 60 km), según las estaciones oficiales."""
     limit(request, "point")
+    nota = "Error medio de la temperatura prevista a 24 h frente a la medida por estaciones oficiales (XEMA/METAR) a ≤ 25 km."
+    # un lugar extra verificado a ≤ 5 km (favorito de alguien) manda sobre el lugar principal, si ya tiene datos
+    ext = sorted((sources.haversine(lat, lon, e["lat"], e["lon"]), k, e) for k, e in (await asyncio.to_thread(verif.extras)).items())
+    if ext and ext[0][0] <= 5:
+        modelos = await asyncio.to_thread(verif.precision, ext[0][1], dias)
+        if modelos:
+            return {"disponible": True, "lugar": ext[0][2]["nombre"], "dias": dias, "lead_h": 24, "minimo_n": verif.MIN_N, "modelos": modelos, "nota": nota}
     cerca = min(PLACES, key=lambda p: sources.haversine(lat, lon, p.lat, p.lon))
     if sources.haversine(lat, lon, cerca.lat, cerca.lon) > 60:
         return {"disponible": False, "motivo": "sin_lugar_cercano"}
     modelos = await asyncio.to_thread(verif.precision, cerca.slug, dias)
-    return {"disponible": bool(modelos), "lugar": cerca.name, "dias": dias, "lead_h": 24, "minimo_n": verif.MIN_N, "modelos": modelos,
-            "nota": "Error medio de la temperatura prevista a 24 h frente a la medida por estaciones oficiales (XEMA/METAR) a ≤ 25 km."}
+    return {"disponible": bool(modelos), "lugar": cerca.name, "dias": dias, "lead_h": 24, "minimo_n": verif.MIN_N, "modelos": modelos, "nota": nota}
+
+
+class LugarVerifIn(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    nombre: str | None = Field(None, max_length=80)
+
+
+class MisLugaresIn(BaseModel):
+    lugares: list[LugarVerifIn] = Field(default_factory=list, max_length=verif.MAX_EXTRA_PERSONA)
+
+
+@app.get("/api/verificacion/mis-lugares")
+async def verif_mis_lugares(request: Request):
+    """Tus lugares extra (favoritos o Mi ubicación) en los que se comprueba qué modelo acierta más; máximo 5."""
+    sub = account.current(request)["sub"]
+    return {"lugares": await asyncio.to_thread(verif.mis_lugares, sub), "maximo": verif.MAX_EXTRA_PERSONA,
+            "nota": "Se consulta cada lugar una vez cada 6 h (a las 00, 06, 12 y 18 UTC) y solo si Open-Meteo va holgado; hacen falta estaciones oficiales a ≤ 25 km."}
+
+
+@app.put("/api/verificacion/mis-lugares")
+async def verif_poner_mis_lugares(request: Request, b: MisLugaresIn):
+    """Sustituye tu lista de lugares extra a verificar (0-5). Lista vacía = ninguno."""
+    sub = account.current(request)["sub"]
+    try:
+        lugares = await asyncio.to_thread(verif.poner_mis_lugares, sub, [x.model_dump() for x in b.lugares])
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"lugares": lugares, "maximo": verif.MAX_EXTRA_PERSONA}
+
+
+@app.get("/api/verificacion/informe")
+async def verif_informe(request: Request, mes: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")):
+    """Informe mensual «Quién acierta más»: por lugar (los principales y tus lugares extra), ranking de modelos a 24 y 12 h, el ganador y el mes anterior.
+    Solo lee lo ya guardado: no gasta consultas externas."""
+    sub = account.current(request)["sub"]
+    mios = [x["clave"] for x in await asyncio.to_thread(verif.mis_lugares, sub)]
+    return await asyncio.to_thread(verif.informe, [p.slug for p in PLACES] + mios, mes)
 
 
 @app.get("/api/oficial")
