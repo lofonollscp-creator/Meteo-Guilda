@@ -37,6 +37,8 @@ Toda la API exige la sesión de Guilda Work (cookie) salvo `/api/health`, los me
 | `GET /api/solar` | Kp y flujo solar (NOAA) |
 | `GET /api/satellites` · `GET /api/satellites/passes?lat=&lon=&hours=&min_el=&sats=` | Satélites y sus pasos |
 | `GET /api/portable?lat=&lon=` | Mejores ventanas para operar en portátil |
+| `GET /api/aprs?bbox=sur,oeste,norte,este` o `?lat=&lon=&km=` (`&max_age_min=60`) | Estaciones APRS recientes (última posición: tipo, velocidad, rumbo, altitud, comentario). Zona: 60 km alrededor de los lugares principales; se guarda 24 h |
+| `GET /api/dxcluster?banda=&modo=&continente=&buscar=&limite=` | Spots del clúster DX (HamQTH; reserva DX Summit). Una descarga compartida cada 2 min como mucho |
 | `GET /api/avisos?lat=&lon=` | Avisos oficiales vigentes (AEMET) del punto + enlaces; requiere `AEMET_API_KEY` para los avisos |
 | `GET /api/precision?lat=&lon=&dias=` | Qué modelo acierta más la temperatura a 24 h en un lugar extra verificado a ≤ 5 km o, si no, en el lugar principal más cercano (≤ 60 km), frente a estaciones XEMA/METAR; vacío hasta reunir ≥ 8 comparaciones por modelo |
 | `GET /api/verificacion/informe?mes=AAAA-MM` | Informe mensual por lugar (principales y los tuyos): ranking a 24 y 12 h, sesgo, % a ±2 °C, ganador y mes anterior; solo lee la base de datos |

@@ -1,7 +1,7 @@
 // Service worker de Guilda: shell offline + datos de API con red primero y copia de respaldo.
-const V = "guilda-b795a441a5";
+const V = "guilda-36ed3eced6";
 const SHELL = ["/", "/index.html", "/css/app.css", "/js/app.js", "/js/util.js", "/js/icons.js", "/js/charts.js", "/js/forecast.js", "/js/routes.js", "/js/radio.js", "/js/learn.js",
-  "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/js/cards.js", "/js/voice.js", "/js/recordatorio.js", "/js/push.js", "/js/alertas.js", "/js/qslserv.js", "/js/verificacion.js", "/js/qth.js", "/js/md.js", "/js/pantalla.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
+  "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/js/cards.js", "/js/voice.js", "/js/recordatorio.js", "/js/push.js", "/js/alertas.js", "/js/qslserv.js", "/js/verificacion.js", "/js/aprsdx.js", "/js/qth.js", "/js/md.js", "/js/pantalla.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
   "/fonts/ibm-plex-sans-latin-400-normal.woff2", "/fonts/ibm-plex-sans-latin-500-normal.woff2", "/fonts/ibm-plex-sans-latin-600-normal.woff2",
   "/fonts/ibm-plex-mono-latin-400-normal.woff2", "/fonts/ibm-plex-mono-latin-500-normal.woff2", "/fonts/newsreader-latin-500-normal.woff2", "/fonts/newsreader-latin-600-normal.woff2"];
 const API_CACHEABLE = /^\/api\/(places|forecast$|raw|astro|portable|propagation|solar|repeaters|satellites|snapshot|observations)/;

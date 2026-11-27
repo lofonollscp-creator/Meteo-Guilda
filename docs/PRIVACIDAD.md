@@ -30,6 +30,11 @@ Todo lo que sigue es **opcional y desactivado por defecto**, salvo la sesión (n
 - **Mínimo dato**: ubicación redondeada a ~1 km (la de «Mi ubicación» al guardar), nivel de aviso y qué quiere recibir. Máximo 5 dispositivos por cuenta.
 - **Sin entregas durante 90 días** → se borra el dispositivo; si el navegador da error 404/410 (baja), se borra al instante.
 
+## APRS en vivo (datos de terceros)
+Las posiciones APRS son públicas por diseño (las estaciones las emiten a la red APRS-IS y se ven en servicios como aprs.fi). Aun así se guarda lo mínimo:
+la **última** posición de cada indicativo oído en la zona del ingestor (sin recorridos), su símbolo, velocidad, rumbo, altitud y un comentario de 60
+caracteres como mucho, y se **borra a las 24 h** (`aprs_estaciones`). Los datos meteo de las balizas siguen su propia retención (7 días, `obs`).
+
 ## Ejercicio de derechos
 - **Acceso y portabilidad**: Ajustes → Memoria → «Descargar todos mis datos» (`/api/me/datos`). No incluye las claves de API.
 - **Supresión**: Ajustes → Cuenta → «Borrar mis ajustes y claves» (`DELETE /api/me`) elimina ajustes, claves, memoria, dispositivos de notificaciones, alertas, rutas guardadas y credenciales de LoTW, eQSL y QRZ.

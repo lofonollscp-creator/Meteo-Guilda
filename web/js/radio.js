@@ -3,6 +3,7 @@ import { renderCharts, renderStrip, sparkline } from "./charts.js";
 import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
 import * as qsl from "./qsl.js";
+import * as aprsdx from "./aprsdx.js";
 
 let ctx, sub = "resumen", places = [], placesP = Promise.resolve([]), loc = null, req = 0;
 const MENU = [
@@ -11,6 +12,7 @@ const MENU = [
   ["repetidores", "Repetidores", "FM, DMR, D-STAR y C4FM con cobertura", "tower"],
   ["propagacion", "Propagación", "Tropo, HF y línea gris", "wave"],
   ["satelites", "Satélites", "Pasos de la ISS y satélites de aficionados", "satellite"],
+  ["aprs", "APRS y clúster DX", "Estaciones en vivo y spots DX", "antenna"],
   ["portatil", "Operación portátil", "Mejor ventana para salir a operar", "tent"],
   ["qsl", "Cuaderno QSL", "Contactos, confirmaciones y tarjetas", "log"],
   ["herramientas", "Herramientas", "Locator, antenas, Morse, código Q…", "tools"],
@@ -45,13 +47,14 @@ export function mount(c) {
   placesP = api("/api/places").then((p) => (places = p)).catch(() => []);
 }
 function qthInfo() { const i = $("#qthinfo"), q = getQth(); if (i) i.textContent = q?.lat != null ? `${q.lat.toFixed(3)}°, ${q.lon.toFixed(3)}°` : "Indica tu locator para personalizar la sección."; }
-export function unmount() { clearLayers(); stopSat(); }
+export function unmount() { clearLayers(); stopSat(); aprsdx.stop(); }
 
 const LAYERS = ["rep-cl", "rep-pt", "rep-pt-sel", "rep-cov", "rep-cov-l", "night", "night-l", "qso-lines", "qso-grids"];
 const SOURCES = ["reps", "rep-c", "night", "qso-l", "qso-g"];
 export function clearLayers() {
   const m = ctx?.map; if (!m || !ctx.mapLoaded) return;
   LAYERS.forEach((l) => m.getLayer(l) && m.removeLayer(l)); SOURCES.forEach((s) => m.getSource(s) && m.removeSource(s));
+  aprsdx.clear(m);
 }
 const onMap = (fn) => (ctx.mapLoaded ? fn() : ctx.mapReady.then(fn));
 
@@ -60,8 +63,8 @@ export function show(parts) {
   sub = MENU.some((m) => m[0] === id) ? id : "resumen";
   req++;
   $$("#menu [data-sub]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sub === sub)));
-  ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; stopSat(); ctx.pane(bare && matchMedia("(max-width:760px)").matches ? "list" : "detail");
-  ({ resumen, ventanas, repetidores: () => repetidores(parts[1]), propagacion, satelites, portatil, qsl: () => qsl.view(ctx, { getQth, clearLayers, onMap }), herramientas })[sub]();
+  ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; stopSat(); aprsdx.stop(); ctx.pane(bare && matchMedia("(max-width:760px)").matches ? "list" : "detail");
+  ({ resumen, ventanas, repetidores: () => repetidores(parts[1]), propagacion, satelites, aprs: () => aprsdx.view(ctx, { onMap, here, head }), portatil, qsl: () => qsl.view(ctx, { getQth, clearLayers, onMap }), herramientas })[sub]();
 }
 const head = (t, p, extra = "") => `<div class="d-head"><div><h1>${t}</h1><p>${p}</p></div>${extra}</div>`;
 const where = () => `<div class="row" style="margin:16px 0"><select id="where" style="width:auto;max-width:100%"></select><span class="chip chip-ghost">o toca el mapa</span></div>`;

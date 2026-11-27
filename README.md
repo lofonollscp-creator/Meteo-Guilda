@@ -11,11 +11,15 @@ Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [A
   Bagnères-de-Bigorre; coordenadas verificadas con dos fuentes), búsqueda libre, favoritos y anclados.
 - Meteograma, gráficos (temperatura con banda entre modelos, lluvia, nieve, viento con flechas, nubes, presión, isocero),
   rosa de los vientos, Sol y Luna y balizas APRS cercanas.
-- Rutas a pie/en coche o GPX: meteo a la hora de paso, semáforo de riesgo, perfil coloreado, mejores ventanas, exportación GPX.
+- Rutas a pie/en coche o GPX: meteo a la hora de paso, semáforo de riesgo, perfil coloreado, mejores ventanas, exportación GPX; rutas guardadas en la cuenta.
+- Planificador de salidas por tramos para monte, carretera y mar: semáforo por tramo con reglas, mejor ventana y equipo sugerido.
+- «Quién acierta más»: verificación de los modelos frente a estaciones oficiales, también en tus lugares, con informe mensual.
 
 **Radio Guilda**
 - Repetidores FM/DMR/D-STAR/C4FM (BrandMeister + HearHam) en mapa con agrupación, ficha, cobertura estimada, exportación a CHIRP.
 - Propagación troposférica y HF, línea gris; pasos de satélites con trayectoria y calendario; ventanas para operar en portátil.
+- Alertas push a tu medida: apertura tropo, mejora de HF o tormenta geomagnética, pasos de los satélites que elijas y tiempo u avisos oficiales en tu QTH o en tus rutas, con tope diario y horario de silencio.
+- APRS en vivo en el mapa y clúster DX con filtros de banda y modo.
 - Cuaderno QSL: duplicados, ADIF (importar/exportar), estadísticas, cuadros trabajados, tarjetas QSL en PNG y conexión con LoTW, eQSL y QRZ (subir y bajar confirmaciones; ver docs/QSL-SERVICIOS.md).
 - Herramientas: locator, distancia, longitud de antena, Morse con audio, código Q, fonético, CTCSS, dBm.
 
@@ -24,7 +28,7 @@ Plan: [PLAN.md](PLAN.md) · [despliegue en VPS compartido](docs/DEPLOY.md) · [A
 - **Mi ubicación** compartida por Previsión, Radio, asistente y MCP; **mejor momento para** senderismo, ciclismo, dron, colada, estrellas y playa; **aire, UV y polen**; lectura de IA **a petición** (docs/DEPLOY.md §15). Todo por API y MCP: [docs/MAPA-FUNCIONES.md](docs/MAPA-FUNCIONES.md).
 - **Ajustes de la cuenta** (IA sí/no, proveedor y modelo, claves propias cifradas) y **asistente de IA** con datos reales del lugar (docs/DEPLOY.md §12).
 - 8 modelos para contrastar y observaciones de APRS, METAR y XEMA (§13); la lectura de IA llega aparte y no bloquea la página.
-- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (45 herramientas).
+- Todo por API (`/api/openapi.json`, ver [docs/API.md](docs/API.md)) y por MCP (más de 70 herramientas; ficheros grandes por enlace que caduca en una hora y confirmación antes de borrar).
 - Sincronización opcional con clave secreta (favoritos, QTH y cuaderno entre dispositivos, API y MCP).
 
 ## Desarrollo

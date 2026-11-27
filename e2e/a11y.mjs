@@ -2,7 +2,7 @@
 // Uso: docker run --rm --network host -v $PWD/e2e/a11y.mjs:/e2e/a11y.mjs:ro mg-e2e node a11y.mjs   (BASE=url, ANCHOS=390,1280, MIN=40)
 import { chromium } from "playwright";
 const BASE = process.env.BASE || "http://127.0.0.1:8099", ANCHOS = (process.env.ANCHOS || "390,1280").split(",").map(Number), MIN_TACTIL = +(process.env.MIN || 40), MIN_RATON = 24;
-const RUTAS = ["forecast", "forecast/garos", "routes", "radio", "radio/repetidores", "radio/satelites", "radio/propagacion", "radio/ventanas", "radio/portatil", "radio/qsl", "radio/herramientas", "learn"];
+const RUTAS = ["forecast", "forecast/garos", "routes", "radio", "radio/repetidores", "radio/satelites", "radio/aprs", "radio/propagacion", "radio/ventanas", "radio/portatil", "radio/qsl", "radio/herramientas", "learn"];
 const FAKE = { answer: "Prueba.", model: "x", herramientas: [], lugares: [], tarjetas: [
   { tipo: "comparar", lugares: [{ nombre: "Sitges", lat: 41.23, lon: 1.81, min_c: 9, max_c: 18, lluvia_48h_mm: 0, racha_max_kmh: 24 }, { nombre: "Vilanova", lat: 41.22, lon: 1.72, min_c: 9, max_c: 17, lluvia_48h_mm: 2, racha_max_kmh: 31 }], veredicto: ["Sitges es más cálido"] },
   { tipo: "mar", lugar: "Sitges", lat: 41.23, lon: 1.81, ahora: { ola_m: 0.6, estado: "Marejadilla" }, maximo: { ola_m: 1.4 }, serie: [0.6, 0.7, 0.9, 1.2, 1.4, 1.1, 0.8, 0.7], horas: Array(8).fill("2026-11-24T00:00") },

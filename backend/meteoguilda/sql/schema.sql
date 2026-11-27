@@ -183,3 +183,11 @@ CREATE TABLE IF NOT EXISTS verif_extra_sub (
   PRIMARY KEY (sub, clave)
 );
 CREATE INDEX IF NOT EXISTS verif_pred_lugar ON verif_pred (lugar, lead_h, valida);
+
+-- APRS en vivo: ÚLTIMA posición de cada estación oída por el ingestor (sin recorridos; se borra a las 24 h; ver aprs_vivo.py)
+CREATE TABLE IF NOT EXISTS aprs_estaciones (
+  callsign TEXT PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(), geom GEOGRAPHY(Point, 4326) NOT NULL,
+  simbolo TEXT, velocidad_kmh REAL, rumbo SMALLINT, altitud_m REAL, comentario TEXT
+);
+CREATE INDEX IF NOT EXISTS aprs_estaciones_geom ON aprs_estaciones USING GIST (geom);
+CREATE INDEX IF NOT EXISTS aprs_estaciones_ts ON aprs_estaciones (ts DESC);

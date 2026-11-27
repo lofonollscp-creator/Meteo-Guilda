@@ -10,7 +10,7 @@ import os
 import socket
 import time
 
-from . import configuracion, db, store
+from . import aprs_vivo, configuracion, db, store
 from .aprs import parse_packet
 from .places import PLACES
 from .qc import range_ok
@@ -46,17 +46,24 @@ def run() -> None:
                 f.write(f"user N0CALL pass -1 vers meteoguilda 0.1 filter {FILTER}\r\n")
                 f.flush()
                 log.info("conectado a %s:%s", HOST, PORT)
-                backoff, last_purge, last_flush, buf = 5, time.time(), time.time(), []
+                backoff, last_purge, last_flush, buf, pos = 5, time.time(), time.time(), [], []
                 for line in f:
                     line = line.strip()
                     o = parse_packet(line) if line and not line.startswith("#") else None
                     if o and o.lat is not None and range_ok(o):
                         buf.append(o)
-                    if buf and (len(buf) >= 50 or time.time() - last_flush > 10):
+                    if line and not line.startswith("#") and (p := aprs_vivo.parse_posicion(line)):      # APRS en vivo: última posición de cada estación
+                        pos.append(p)
+                    if (buf or pos) and (len(buf) + len(pos) >= 50 or time.time() - last_flush > 10):
                         store.insert_many(buf)
-                        buf, last_flush = [], time.time()
+                        try:
+                            aprs_vivo.guardar(pos)
+                        except Exception as e:  # noqa: BLE001  (las posiciones no deben tumbar la meteo)
+                            log.warning("posiciones APRS: %s", e)
+                        buf, pos, last_flush = [], [], time.time()
                     if time.time() - last_purge > 3600:
                         store.purge()
+                        aprs_vivo.purgar()
                         last_purge = time.time()
         except (OSError, TimeoutError) as e:
             log.warning("conexión perdida (%s); reintento en %ss", e, backoff)

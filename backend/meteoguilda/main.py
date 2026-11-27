@@ -25,7 +25,7 @@ from . import avisos as avisos_mod
 from . import meteocat
 from . import verif
 from . import push, reglas, memoria, configuracion, uso_ia, estado as estado_mod
-from . import alertas, descargas, rutas_guardadas, qsl_servicios, salidas
+from . import alertas, aprs_vivo, descargas, rutas_guardadas, qsl_servicios, salidas
 from . import mar as mar_mod
 from . import comparar as comparar_mod
 from .cuota import cuota as cuota_om, hook_antes as _cuota_antes, hook_despues as _cuota_despues
@@ -257,6 +257,7 @@ app.include_router(alertas.router)
 app.include_router(rutas_guardadas.router)
 app.include_router(qsl_servicios.router)
 app.include_router(descargas.router)
+app.include_router(aprs_vivo.router)
 
 
 @app.get("/api/cuota")
@@ -824,6 +825,17 @@ async def propagation(request: Request, lat: float = Query(ge=-90, le=90), lon: 
         return {**await radio.propagation(H(request), lat, lon), "locator": radio.to_locator(lat, lon)}
     except httpx.HTTPError as e:
         raise HTTPException(502, f"Fuente de modelos no disponible: {e}") from e
+
+
+@app.get("/api/dxcluster")
+async def dxcluster(request: Request, banda: str | None = Query(None, max_length=6), modo: str | None = Query(None, max_length=6),
+                    continente: str | None = Query(None, max_length=2), buscar: str | None = Query(None, max_length=20), limite: int = Query(50, ge=1, le=200)):
+    """Spots del clúster DX (HamQTH; si falla, DX Summit), filtrables por banda (20m…), modo (FT8, CW, SSB…), continente (EU, NA…) o texto (indicativo o país).
+    Una sola descarga compartida cada 2 min: pedirlo muchas veces no carga la fuente."""
+    d = await aprs_vivo.spots(H(request))
+    lista = aprs_vivo.filtrar(d["spots"], banda, modo, continente, buscar, limite)
+    return {"spots": lista, "total_fuente": len(d["spots"]), "fuente": d["fuente"], "edad_s": int(time.time() - d["t"]) if d["t"] else None,
+            "nota": "Spots públicos del clúster DX (hora UTC). Se actualizan cada 2 min como mucho."}
 
 
 @app.get("/api/solar")

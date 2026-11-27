@@ -662,6 +662,27 @@ async def plan_outing(ctx: Context, kind: Literal["monte", "carretera", "mar"] |
     return await _quiza_enlace(ctx, "salida", res)
 
 
+# ---------- APRS en vivo y clúster DX ----------
+@mcp.tool()
+async def get_aprs_stations(ctx: Context, lat: float | None = None, lon: float | None = None, radius_km: float = 50, south: float | None = None, west: float | None = None,
+                            north: float | None = None, east: float | None = None, max_age_min: int = 60) -> Any:
+    """Estaciones APRS recientes (última posición de cada una: tipo, velocidad, rumbo, altitud, comentario, hace cuántos minutos) cerca de un punto (lat, lon,
+    radius_km) o en un recuadro (south, west, north, east). Cubre 60 km alrededor de los lugares principales."""
+    p = {"max_age_min": max_age_min}
+    if lat is not None and lon is not None:
+        p.update(lat=lat, lon=lon, km=radius_km)
+    elif None not in (south, west, north, east):
+        p["bbox"] = f"{south},{west},{north},{east}"
+    return await _quiza_enlace(ctx, "aprs", await _call("GET", "/api/aprs", params=p))
+
+
+@mcp.tool()
+async def get_dx_spots(band: str | None = None, mode: str | None = None, continent: str | None = None, search: str | None = None, limit: int = 30) -> dict:
+    """Spots recientes del clúster DX (fuente pública, caché de 2 min): indicativo DX, frecuencia, banda, modo, comentario, hora UTC, país y quién lo anunció.
+    Filtros: band (20m, 40m…), mode (FT8, CW, SSB…), continent (EU, NA, SA, AS, AF, OC, AN), search (indicativo o país)."""
+    return await _call("GET", "/api/dxcluster", params={"banda": band, "modo": mode, "continente": continent, "buscar": search, "limite": limit})
+
+
 class _Bearer:
     """Middleware ASGI: exige `Authorization: Bearer …`. Vale la clave fija MG_MCP_TOKEN (opcional) o un token OAuth emitido por
     /api/oauth/token, que se valida contra /api/oauth/introspect de la API (con caché de 60 s)."""
