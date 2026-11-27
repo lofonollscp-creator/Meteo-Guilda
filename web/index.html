@@ -11,12 +11,13 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Guilda">
-<meta name="theme-color" content="#f4f3ef" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0c1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F6F6F3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0D10" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/newsreader-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/geist-sans-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/v3.css">
 <link rel="modulepreload" href="js/app.js"><link rel="modulepreload" href="js/forecast.js"><link rel="modulepreload" href="js/charts.js"><link rel="modulepreload" href="js/util.js">
 <script>try{var t=JSON.parse(localStorage.getItem('mg-theme'));if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
@@ -25,7 +26,7 @@
 <div class="app" id="app" data-pane="list">
   <nav class="nav" aria-label="Secciones">
     <a class="logo" href="#/forecast" aria-label="Guilda · inicio"><svg viewBox="0 0 32 32" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 26.5 12 11.5l5 8.5 3.5-5 8 11.5Z"/><path d="M8.46 7.46A5 5 0 0 1 15.54 7.46M5.64 4.64A9 9 0 0 1 18.36 4.64"/><circle cx="25" cy="7.2" r="2.6"/></svg></a>
-    <button class="nv" data-s="forecast" type="button"><i data-i="cloud" data-s="22"></i><span>Previsión</span></button>
+    <button class="nv" data-s="forecast" type="button"><i data-i="cloud" data-s="22"></i><span>Hoy</span></button>
     <button class="nv" data-s="routes" type="button"><i data-i="route" data-s="22"></i><span>Rutas</span></button>
     <button class="nv" data-s="radio" type="button"><i data-i="antenna" data-s="22"></i><span>Radio</span></button>
     <button class="nv" data-s="learn" type="button"><i data-i="book" data-s="22"></i><span>Aprende</span></button>
@@ -35,6 +36,14 @@
     <button class="icon-btn" id="acctbtn" type="button" aria-label="Ajustes de la cuenta" title="Ajustes (IA, cuenta, sincronización)"><i data-i="gear"></i></button>
     <button class="icon-btn" id="theme" type="button" aria-label="Cambiar tema claro/oscuro" title="Tema"><i data-i="sun"></i></button>
   </nav>
+  <header class="topbar" aria-label="Barra superior">
+    <div class="crumb"><span id="tb-sec">Meteo</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg><b id="tb-page">Hoy</b></div>
+    <button class="cmd" id="tb-cmd" type="button" aria-label="Pregunta a Guilda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"/></svg><span>Pregunta a Guilda: el tiempo de un lugar, una ruta, una banda…</span></button>
+    <div class="tools">
+      <span class="fresh" id="tb-fresh" hidden><i aria-hidden="true"></i><span></span></span>
+      <button class="tb-btn" id="tb-place" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11Z"/><circle cx="12" cy="10" r="2"/></svg><span></span></button>
+    </div>
+  </header>
   <aside class="cola" id="cola" aria-label="Panel"></aside>
   <main class="colb" id="detail" tabindex="-1" aria-live="polite"></main>
   <div class="offline" id="offline" hidden><i data-i="offline" data-s="15"></i> Sin conexión: mostrando datos guardados</div>

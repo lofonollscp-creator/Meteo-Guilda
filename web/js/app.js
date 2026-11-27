@@ -73,7 +73,14 @@ const ctx = {
   mapCtl(html) { $("#mapctl").innerHTML = html; hydrate($("#mapctl")); },
   brand(section, sub) { const [n, s] = BRAND[section]; return `<div class="brand">${MARKS[MARK_OF[section]]}<div class="brand-text"><strong>${n}</strong><span>${esc(sub || s)}</span></div></div>`; },
   icon, hydrate,
+  /** Barra superior (escritorio): página actual, frescura de los datos y lugar. Cada sección la rellena con datos reales o la deja vacía. */
+  top({ page, fresh, place } = {}) {
+    if (page !== undefined) $("#tb-page").textContent = page || TOP[current]?.[1] || "";
+    if (fresh !== undefined) { const f = $("#tb-fresh"); f.hidden = !fresh; f.querySelector("span").textContent = fresh || ""; }
+    if (place !== undefined) { const b = $("#tb-place"); b.hidden = !place; b.querySelector("span").textContent = place || ""; }
+  },
 };
+const TOP = { forecast: ["Meteo", "Hoy"], routes: ["Planificar", "Rutas"], radio: ["Radio", "Condiciones"], learn: ["Guilda", "Aprende"] };
 
 /* ---------- Tema ---------- */
 /* Tema: sistema → claro → oscuro (el modo «sistema» sigue al dispositivo y cambia solo con él) */
@@ -160,6 +167,7 @@ async function route() {
     document.body.dataset.section = name;
     document.title = name === "radio" ? "Radio Guilda" : name === "learn" ? "Aprende · Guilda" : "Meteo Guilda";
     $$(".nav .nv").forEach((b) => (b.dataset.s === name ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
+    $("#tb-sec").textContent = TOP[name][0]; ctx.top({ page: "", fresh: "", place: "" });
     ctx.pane(phone() ? "list" : "detail");
     SECTIONS[name].mount(ctx);
   }
@@ -226,6 +234,8 @@ assistant.init(ctx, account.open);
 assistant.mountAsk(colb);
 $("#acctbtn").addEventListener("click", () => account.open("ia"));
 $("#chatbtn").addEventListener("click", () => assistant.toggle());
+$("#tb-cmd").addEventListener("click", () => assistant.toggle());
+$("#tb-place").addEventListener("click", () => { const s = $("#q"); if (s) { s.focus(); s.select(); } });
 me.load();
 pullSettings().finally(route);
 (window.requestIdleCallback || ((f) => setTimeout(f, 800)))(() => { if (!phone()) ensureMap(); else setTimeout(ensureMap, 6000); }, { timeout: 2500 });

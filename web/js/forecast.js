@@ -299,6 +299,8 @@ function render(d) {
       <span class="m">${nf1.format(x.lluvia_mm)}<small>mm</small></span><span class="m">${x.racha_max_kmh}<small>km/h</small></span></div>`;
   }).join("");
 
+  ctx.top?.({ page: lug.name, fresh: `Actualizado ${fmtTime(d.generado)} · ${nm} modelos`, place: ctx.home()?.name || "" });
+  const confN = { baja: 1, media: 2, alta: 3 }[p.confianza] || 1;
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${esc(lug.name)}</h1><p>${area}</p></div><div class="d-actions" id="actions"></div></div>
   <div class="badges"><span class="badge">${confBars(p.confianza)} Confianza ${esc(p.confianza)}</span><span class="badge">Actualizado ${fmtTime(d.generado)}</span><span class="badge">${nm} modelos</span><span class="badge" id="aibadge"></span></div>
@@ -322,7 +324,10 @@ function render(d) {
     ${mountain && iso.length ? `<div class="stat"><span class="lbl">Isocero</span><span class="num">${t0(avg(iso))}<small>m</small></span></div>` : ""}
   </div>
 
-  <section class="sec" id="reading-sec"><div class="label">Lectura <em id="ailabel"></em></div>
+  <section class="sec" id="reading-sec" aria-label="Lectura">
+    <div class="aiseal"><span class="ai-tag">${icon("spark", 13)}<span id="ailabel">Lectura</span></span>
+      <span class="conf" title="Confianza: acuerdo entre modelos y calidad de los datos"><span class="bars" data-n="${confN}" aria-hidden="true"><i></i><i></i><i></i></span>Confianza ${esc(p.confianza)}</span>
+      <span class="dot" aria-hidden="true">·</span><span>${nm} modelos${srcs.length ? ` · estaciones ${esc(srcs.join(", "))}` : ""}</span></div>
     <div id="reading"></div>
     <div id="rcols"></div>${aiOn() ? `<div class="row" style="margin-top:18px;gap:10px"><button class="btn ai sm" type="button" data-askabout>${icon("spark", 14)} Preguntar sobre esto</button></div>` : ""}
     <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg>
