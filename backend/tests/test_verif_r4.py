@@ -52,8 +52,8 @@ def test_registrar_extras_una_vez_por_tramo_y_respetando_la_cuota(cli):
     assert asyncio.run(verif.registrar_extras(obtener, holgada, datetime(2026, 11, 26, 7, 10, tzinfo=UTC), 0)) == 0         # no es hora de registro
     assert asyncio.run(verif.registrar_extras(obtener, justa, datetime(2026, 11, 26, 6, 10, tzinfo=UTC), 0)) == 0           # cuota justa: se salta
     assert asyncio.run(verif.registrar_extras(obtener, holgada, datetime(2026, 11, 26, 6, 20, tzinfo=UTC), 0)) == 0         # mismo tramo: no se repite
-    assert asyncio.run(verif.registrar_extras(obtener, holgada, datetime(2026, 11, 26, 12, 5, tzinfo=UTC), 0)) == 2
-    assert pedidos == [(41.49, 2.36), (42.0, 1.0)]
+    assert asyncio.run(verif.registrar_extras(obtener, holgada, datetime(2026, 11, 26, 12, 5, tzinfo=UTC), 0)) == len(PLACES) + 2
+    assert pedidos == [(p.lat, p.lon) for p in PLACES] + [(41.49, 2.36), (42.0, 1.0)]
     with db.pool().connection() as con:
         assert con.execute("SELECT count(*) AS n FROM verif_pred WHERE lugar = 'x:41.49,2.36'").fetchone()["n"] == 4
     _limpia()

@@ -201,7 +201,7 @@ _ultimo_tramo: str | None = None
 
 
 async def registrar_extras(obtener, cuota_estado, ahora: datetime | None = None, espera_s: float = 5) -> int:
-    """A las horas de registro, consulta UNA vez cada lugar extra (`obtener(lat, lon)` = resumen forzado, que registra lo previsto).
+    """A las horas de registro, consulta UNA vez cada lugar principal y extra (`obtener(lat, lon)` = resumen forzado, que registra lo previsto).
     Se salta el tramo entero si Open-Meteo va justo de cuota. Devuelve cuántos lugares consultó."""
     global _ultimo_tramo
     ahora = ahora or datetime.now(timezone.utc)
@@ -214,7 +214,8 @@ async def registrar_extras(obtener, cuota_estado, ahora: datetime | None = None,
         log.warning("verif: se salta el registro de lugares extra (cuota de Open-Meteo al %s %%)", (est.get("porcentaje") or {}).get("dia"))
         return 0
     n = 0
-    for e in list(extras(refrescar=True).values()):
+    # también los principales: el ciclo de pregen (cada 2 h desde el arranque) no siempre cae en una hora de registro y quedaban días sin datos
+    for e in [{"lat": p.lat, "lon": p.lon, "nombre": p.name} for p in PLACES] + list(extras(refrescar=True).values()):
         try:
             await obtener(e["lat"], e["lon"])
             n += 1
