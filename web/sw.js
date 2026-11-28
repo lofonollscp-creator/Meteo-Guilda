@@ -1,6 +1,6 @@
 // Service worker de Guilda: shell offline + datos de API con red primero y copia de respaldo.
-const V = "guilda-ea63cc5de0";
-const SHELL = ["/", "/index.html", "/css/app.css", "/css/v3.css", "/js/app.js", "/js/util.js", "/js/icons.js", "/js/charts.js", "/js/forecast.js", "/js/routes.js", "/js/radio.js", "/js/learn.js",
+const V = "guilda-ae18759f1b";
+const SHELL = ["/", "/index.html", "/css/app.css", "/css/v3.css", "/js/app.js", "/js/util.js", "/js/icons.js", "/js/charts.js", "/js/forecast.js", "/js/hoy.js", "/js/routes.js", "/js/radio.js", "/js/learn.js",
   "/js/learn-data.js", "/js/qsl.js", "/js/sync.js", "/js/me.js", "/js/account.js", "/js/assistant.js", "/js/cards.js", "/js/voice.js", "/js/recordatorio.js", "/js/push.js", "/js/alertas.js", "/js/qslserv.js", "/js/verificacion.js", "/js/aprsdx.js", "/js/qth.js", "/js/md.js", "/js/pantalla.js", "/icons/icon-192.png", "/icons/icon-512.png", "/vendor/maplibre-gl.js", "/vendor/maplibre-gl.css", "/favicon.svg", "/manifest.webmanifest",
   "/fonts/geist-sans-latin-400-normal.woff2", "/fonts/geist-sans-latin-500-normal.woff2", "/fonts/geist-sans-latin-600-normal.woff2", "/fonts/geist-mono-latin-400-normal.woff2", "/fonts/geist-mono-latin-500-normal.woff2",
   "/fonts/ibm-plex-sans-latin-400-normal.woff2", "/fonts/ibm-plex-sans-latin-500-normal.woff2", "/fonts/ibm-plex-sans-latin-600-normal.woff2",

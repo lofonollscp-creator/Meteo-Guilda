@@ -4,6 +4,7 @@ import { icon } from "./icons.js";
 import { pushSettings } from "./sync.js";
 import * as qsl from "./qsl.js";
 import * as aprsdx from "./aprsdx.js";
+import { seal as hoySeal, tmo } from "./hoy.js";
 
 let ctx, sub = "resumen", places = [], placesP = Promise.resolve([]), loc = null, req = 0;
 const MENU = [
@@ -82,24 +83,47 @@ async function fillWhere(onChange) {
 /* ---------- Resumen ---------- */
 async function resumen() {
   const my = req, at = here(), q = getQth();
+  ctx.top?.({ page: "Condiciones", place: at.name || "" });
   ctx.colb.innerHTML = `${head("Radio Guilda", "Meteorología y radio, juntas: lo que importa ahora mismo " + (q?.lat != null ? "en tu QTH" : "(indica tu locator para personalizarlo)"))}
-    <div class="pgrid" id="rg" style="margin-top:22px">${Array.from({ length: 6 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div>
+    <section class="rbrief" id="rbrief" aria-label="Para operar hoy"><div class="skeleton" style="height:90px"></div></section>
+    <section class="hoy-kpis" id="rkpis" aria-label="Clima espacial y condiciones">${Array.from({ length: 4 }, () => '<div class="kpi"><div class="skeleton" style="height:62px"></div></div>').join("")}</section>
+    <section class="card rheat" id="rheat" aria-label="Bandas por tramo"><div class="skeleton" style="height:220px"></div></section>
+    <div class="pgrid" id="rg" style="margin-top:22px">${Array.from({ length: 4 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div>
     <section class="sec"><div class="label">Qué puedes hacer</div><div class="quick">
       <a href="#/radio/repetidores">${icon("tower")}Buscar repetidores</a><a href="#/radio/satelites">${icon("satellite")}Pasos de satélites</a><a href="#/radio/portatil">${icon("tent")}Operar en portátil</a>
       <a href="#/radio/qsl">${icon("log")}Cuaderno QSL</a><a href="#/radio/herramientas">${icon("tools")}Herramientas</a><a href="#/learn/tropo">${icon("book")}Guías</a></div></section>
     <p class="empty" style="margin-top:20px">Todo lo que ves aquí está disponible por la <a href="/api/openapi.json">API</a> y el <a href="#/learn/mcp">servidor MCP</a>.</p>`;
   ctx.marker(at.lon, at.lat, { label: at.name, cls: "on" }); ctx.fly(at.lat, at.lon, 6);
-  const [solar, prop, astro, sats, reps, port, st] = await Promise.all([
+  const [solar, prop, astro, sats, reps, port, st, ven] = await Promise.all([
     api("/api/solar").catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null), api(`/api/astro?lat=${at.lat}&lon=${at.lon}`).catch(() => null),
-    api(`/api/satellites/passes?lat=${at.lat}&lon=${at.lon}&hours=24&min_el=15`).catch(() => null), api(`/api/repeaters/near?lat=${at.lat}&lon=${at.lon}&km=70&limit=4`).catch(() => []),
-    api(`/api/portable?lat=${at.lat}&lon=${at.lon}`).catch(() => null), qsl.quickStats().catch(() => null)]);
+    tmo(api(`/api/satellites/passes?lat=${at.lat}&lon=${at.lon}&hours=24&min_el=15`)).catch(() => null), api(`/api/repeaters/near?lat=${at.lat}&lon=${at.lon}&km=70&limit=4`).catch(() => []),
+    api(`/api/portable?lat=${at.lat}&lon=${at.lon}`).catch(() => null), qsl.quickStats().catch(() => null), api(`/api/radio/ventanas?lat=${at.lat}&lon=${at.lon}`).catch(() => null)]);
   if (my !== req || !$("#rg")) return;
-  const w = prop?.peor, cat = { conducto: "lv2", "super-refracción": "lv1" }[w?.cat] || "lv0", time = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
-  const next = sats?.pasos?.[0], win = port?.mejores_ventanas?.[0];
+  const w = prop?.peor, time = (iso) => new Date(iso).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+  const next = sats?.pasos?.[0], win = port?.mejores_ventanas?.[0], T = (ven?.tramos || []).slice(0, 16);
+  const dayH = (iso) => { const d = new Date(iso), td = new Date().toDateString() === d.toDateString(); return `${td ? "" : d.toLocaleDateString("es", { weekday: "short" }).replace(".", "") + " "}${String(d.getHours()).padStart(2, "0")} h`; };
+  // titular: el mejor tramo de HF, la tropo y el próximo pase (todo de la API; nada inventado)
+  const best = T.reduce((m, x) => (x.hf?.nota > (m?.hf?.nota ?? -1) ? x : m), null), bits = [];
+  if (best) bits.push(`Mejor rato para HF: ${dayH(best.desde)}–${dayH(best.hasta).replace(/^\D+ /, "")}, con ${best.hf.bandas.slice(0, 3).join(", ")} (${best.hf.motivo.charAt(0).toLowerCase() + best.hf.motivo.slice(1)})`);
+  if (w) bits.push(`tropo en VHF/UHF: ${w.cat}`);
+  if (next) bits.push(`${next.satelite} pasa a las ${time(next.aos)} a ${next.max_el}°`);
+  $("#rbrief").innerHTML = `${hoySeal("Para operar hoy", "", "NOAA SWPC · modelo de Guilda por tramos")}<h2 class="hoy-h1">${esc(bits.length ? bits.join(". ") + "." : "Sin datos suficientes para recomendar ahora mismo.")}</h2>`;
+  const k = [["Índice Kp", solar?.kp != null ? nf1.format(solar.kp) : "–", solar?.resumen?.[0] || "NOAA SWPC"], ["Flujo solar (SFI)", solar?.sfi ?? "–", solar?.sfi == null ? "sin dato ahora" : "unidades de flujo solar"],
+    ["Tropo 72 h", w ? w.cat : "–", w ? `peor tramo: ${time(w.time)}` : "modelo de gradiente"], ["Próximo pase", next ? time(next.aos) : "–", next ? `${next.satelite} · ${next.max_el}° máx.` : "sin pasos > 15° en 24 h"]];
+  $("#rkpis").innerHTML = k.map(([l, v, s]) => `<div class="kpi"><span class="kpl">${l}</span><span class="kpv">${esc(String(v))}</span><span class="kps">${esc(s)}</span></div>`).join("");
+  // mapa de calor: bandas recomendadas por tramo de 3 h (luz, línea gris y flujo solar) y tropo en VHF/UHF
+  const BANDS = ["160 m", "80 m", "60 m", "40 m", "30 m", "20 m", "17 m", "15 m", "12 m", "10 m", "6 m"];
+  const lvlHf = (x, b) => (!x.hf?.bandas?.includes(b) ? 0 : x.hf.nota >= 70 ? 3 : x.hf.nota >= 50 ? 2 : 1);
+  const lvlTr = (x) => (x.tropo?.nota >= 70 ? 3 : x.tropo?.nota >= 50 ? 2 : x.tropo?.nota >= 35 ? 1 : 0);
+  const used = BANDS.filter((b) => T.some((x) => x.hf?.bandas?.includes(b)));
+  const rows = [...used.map((b) => [b, T.map((x) => [lvlHf(x, b), `${b} · ${dayH(x.desde)} · ${x.hf.motivo}`])]), ["VHF tropo", T.map((x) => [lvlTr(x), `Tropo · ${dayH(x.desde)} · ${x.tropo?.motivo || ""}`])]];
+  $("#rheat").innerHTML = T.length ? `<div class="hc-head"><div><h2>Bandas por tramo · próximas ${T.length * 3} h</h2><p>Bandas recomendadas en cada tramo de 3 h según luz, línea gris y flujo solar; tropo según el gradiente de refractividad</p></div>
+    <div class="hm-leg"><span>Cerrada</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><span>Buena</span></div></div>
+    <div class="tablewrap"><div class="hm" style="--n:${T.length}">${rows.map(([n, cells]) => `<span class="hm-n num">${esc(n)}</span>${cells.map(([l, t]) => `<span class="hm-c l${l}" title="${esc(t)}"></span>`).join("")}`).join("")}
+      <span></span>${T.map((x, i) => `<span class="hm-x num">${i % 2 ? "" : String(new Date(x.desde).getHours()).padStart(2, "0")}</span>`).join("")}</div></div>
+    <p class="hc-src">Modelo simplificado de Guilda (no es VOACAP). Para predicciones finas usa VOACAP o DX Toolbox.</p>` : '<p class="empty">Sin datos de ventanas ahora mismo.</p>';
   const card = (ic, t, link, body) => `<a class="card rcard" href="${link}"><h3>${icon(ic, 16)} ${t}</h3>${body}</a>`;
   $("#rg").innerHTML = [
-    card("wave", "Propagación", "#/radio/propagacion", `<div class="kv"><span>HF · Kp / SFI</span><span>${solar?.kp ?? "–"} / ${solar?.sfi ?? "–"}</span></div><div class="kv"><span>Tropo 72 h</span><span class="pill ${cat}"><i></i>${w ? esc(w.cat) : "–"}</span></div><div class="kv"><span>Locator</span><span>${esc(prop?.locator || toLocator(at.lat, at.lon))}</span></div>`),
-    card("satellite", "Próximo pase", "#/radio/satelites", next ? `<div class="big" style="font-size:26px">${time(next.aos)}</div><p class="empty">${esc(next.satelite)} · ${next.max_el}° máx. · ${Math.round(next.duracion_s / 60)} min</p>` : '<p class="empty">Sin pasos de &gt;15° en 24 h, o datos orbitales no disponibles.</p>'),
     card("tower", "Repetidores cerca", "#/radio/repetidores", reps?.length ? reps.map((r) => `<div class="kv"><span>${esc(r.callsign)} <span class="tag">${esc(r.mode)}</span></span><span>${fmtF(r.freq_mhz)}</span></div>`).join("") : '<p class="empty">Sin repetidores en 70 km (o catálogo aún cargando).</p>'),
     card("tent", "Salir a operar", "#/radio/portatil", win ? `<div class="big" style="font-size:22px">${time(win.desde)}–${time(win.hasta)}</div><p class="empty">Mejor ventana de ${win.horas} h. ${port.horas_con_tormenta.length ? "Hay riesgo de tormenta: revisa." : "Sin tormentas previstas."}</p>` : '<p class="empty">Sin ventanas limpias en 48 h.</p>'),
     card("sun", "Sol y Luna", "#/radio/propagacion", astro ? `<div class="kv"><span>Orto / ocaso</span><span>${time(astro.orto)} / ${time(astro.ocaso)}</span></div><div class="kv"><span>Luna</span><span>${esc(astro.luna.fase)}</span></div><div class="kv"><span>Iluminación</span><span>${astro.luna.iluminacion_pct}%</span></div>` : ""),

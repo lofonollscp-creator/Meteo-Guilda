@@ -5,6 +5,8 @@ import { pushSettings } from "./sync.js";
 import { aiOn, onChange as onMe, me } from "./me.js";
 import { getQth, hasQth, label as qthLabel, hashOf as qthHash, locate, clearQth, onQth, ensureName } from "./qth.js";
 import * as verificacion from "./verificacion.js";
+import * as hoy from "./hoy.js";
+import { tmo } from "./hoy.js";
 
 let ctx, places = [], favs = LS.get("mg-favs", []), recent = LS.get("mg-recent", []), snaps = {}, sel = null, req = 0, horizon = 16, last = null, lastUrl = "", lastData = null, mvar = "temp_c", hiddenModels = new Set(), offMe = null, offQth = null, locating = false;
 const ICON = { star: icon("star", 18), pin: icon("pin", 18), link: icon("link", 18), json: icon("code", 18) };
@@ -454,7 +456,7 @@ async function paintReading(d) {
 async function loadInsights(at, my) {
   const box = $("#insights"); if (!box) return;
   const q = `lat=${at.lat}&lon=${at.lon}`, nm = at.name || places[0]?.name || "";
-  const [av, act, sat, fc] = await Promise.all([api(`/api/avisos?${q}`).catch(() => null), api(`/api/activity?activity=senderismo&${q}`).catch(() => null), api(`/api/satellites/passes?${q}&hours=24&min_el=15`).catch(() => null), api(`/api/forecast?${q}`).catch(() => null)]);
+  const [av, act, sat, fc] = await Promise.all([api(`/api/avisos?${q}`).catch(() => null), api(`/api/activity?activity=senderismo&${q}`).catch(() => null), tmo(api(`/api/satellites/passes?${q}&hours=24&min_el=15`)).catch(() => null), api(`/api/forecast?${q}`).catch(() => null)]);
   if (my !== req || !$("#insights")) return;
   const dia = (iso) => new Date(iso).toLocaleDateString("es", { weekday: "long" }), hm = (iso) => iso.slice(11, 16), rows = [];
   const a = av?.avisos?.[0];
@@ -470,7 +472,7 @@ async function loadInsights(at, my) {
   if (p) rows.push({ ic: "satellite", t: `${p.satelite} pasa a las ${clock(p.aos)}, a ${p.max_el}° de altura`, s: `${Math.round(p.duracion_s / 60)} min · sale por ${compass(p.aos_az)}`, href: "#/radio/satelites", cta: "Ver paso" });
   if (!rows.length) return;
   box.hidden = false;
-  box.innerHTML = `<div class="insights"><div class="ins-head"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Tu día, según Guilda</span><span class="small">${esc(nm)}</span></div>
+  box.innerHTML = `<div class="insights"><div class="ins-head"><span class="ai-tag"><span class="av" aria-hidden="true">${icon("spark", 12)}</span>Lo que conviene saber</span><span class="small">${esc(nm)}</span></div>
     ${rows.map((r, i) => `<div class="ins"><span class="ic2 ${r.cls || ""}">${icon(r.ic, 19)}</span><div><b>${esc(r.t)}</b><span class="s">${esc(r.s)}</span></div>${r.href ? `<a class="askb" href="${r.href}">${r.cta}</a>` : `<button class="askb" type="button" data-i="${i}">${r.cta}</button>`}</div>`).join("")}</div>`;
   box.onclick = (e) => { const b = e.target.closest("[data-i]"); if (b) ctx.ask?.(rows[+b.dataset.i].ask); };
 }
@@ -750,36 +752,34 @@ async function home(keepPane = false) {
   if (!keepPane) ctx.pane("detail");
   const qth = LS.get("mg-qth", null), at = qth || { lat: places[0]?.lat ?? 42.7, lon: places[0]?.lon ?? 0.85 };
   const my = req;
-  const hr = new Date().getHours(), greet = hr < 6 ? "Buenas noches" : hr < 13 ? "Buenos días" : hr < 21 ? "Buenas tardes" : "Buenas noches";
-  ctx.colb.innerHTML = `<div class="d-head home-head"><div><p class="eyebrow">${new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })}</p><h1>${greet}</h1></div></div>
-    <section class="sec insights-sec" id="insights" aria-label="Tu día, según Guilda" hidden></section>
-    <section class="sec" style="margin-top:22px"><div class="label">Tus lugares</div><div class="pgrid" id="pg">${Array.from({ length: 6 }, () => '<div class="skeleton" style="height:150px;border-radius:12px"></div>').join("")}</div></section>
-    <section class="sec"><div class="label">Radio ahora <em><a href="#/radio">abrir Radio Guilda</a></em></div><div class="grid2" id="radio-now"><div class="skeleton" style="height:120px"></div><div class="skeleton" style="height:120px"></div></div></section>
-    <section class="sec"><div class="label">Atajos</div><div class="quick">
-      <a href="#/routes">${icon("route")}Planificar ruta</a><a href="#/radio/repetidores">${icon("tower")}Repetidores cerca</a>
-      <a href="#/radio/satelites">${icon("satellite")}Pasos de satélites</a><a href="#/radio/portatil">${icon("tent")}Salir a operar</a>
-      <a href="#/radio/qsl">${icon("log")}Cuaderno QSL</a><a href="#/learn">${icon("book")}Aprende</a></div></section>`;
+  const q0h = getQth(), atName = q0h?.lat != null ? qthLabel(q0h) : places[0]?.name || "Garòs", atHref = q0h?.lat != null ? qthHash(q0h) : `#/forecast/${places[0]?.slug || "garos"}`;
+  ctx.top?.({ page: "Hoy · " + new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" }), place: atName });
+  ctx.colb.innerHTML = `<div class="hoy">
+    <section class="hoy-brief" id="hoy-brief" aria-label="Tu día"><div class="skeleton" style="width:30%;height:26px;margin-bottom:16px"></div><div class="skeleton" style="height:96px"></div></section>
+    <section class="hoy-kpis" id="hoy-kpis" aria-label="Ahora">${Array.from({ length: 4 }, () => '<div class="kpi"><div class="skeleton" style="height:62px"></div></div>').join("")}</section>
+    <section class="card hoy-chart" id="hoy-chart" aria-label="Próximas horas" hidden></section>
+    <section class="sec insights-sec" id="insights" aria-label="Avisos útiles" hidden></section>
+    <div class="hoy-two">
+      <section class="card hoy-best" id="hoy-best" aria-label="Mejor momento para"><h2>Mejor momento para</h2><div class="skeleton" style="height:170px;margin-top:12px"></div></section>
+      <section class="card hoy-places" aria-label="Tus lugares"><h2>Tus lugares</h2><div class="plist" id="pg">${Array.from({ length: 4 }, () => '<div class="skeleton" style="height:52px;margin-top:10px"></div>').join("")}</div></section>
+    </div>
+    <a class="hoy-radio" id="radio-now" href="#/radio">${icon("antenna", 22)}<span class="hr-t"><b>Radio Guilda:</b> cargando condiciones…</span><span class="hr-go">Ver condiciones →</span></a>
+  </div>`;
+  hoy.paint(ctx, at, atName, atHref, () => my === req && !!$("#hoy-brief"), MODEL_NAMES);
   loadInsights(at, my);
-  const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="pcard" data-go="${esc(x.go)}"><span class="pn">${esc(x.name)}</span><span class="pa">${esc(x.area)}</span>
-      <span class="pt"><span class="num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</span>
-      ${x.snap ? sparkline(x.snap.spark, 180, 34) + `<span class="pm"><span>racha ${x.snap.gust_kmh} km/h</span><span>${nf1.format(x.snap.rain_24h_mm)} mm</span></span>` : ""}</button>`; }).join("");
+  const pcards = (list) => list.map((x) => { const r = riskOf(x.snap); return `<button class="prow" type="button" data-go="${esc(x.go)}"><span class="pr-n"><b>${esc(x.name)}</b><span>${esc(x.area)}${x.snap ? ` · racha ${x.snap.gust_kmh} km/h · ${nf1.format(x.snap.rain_24h_mm)} mm` : ""}</span></span>
+      ${x.snap ? sparkline(x.snap.spark, 80, 28) : "<span></span>"}<span class="pr-t num">${x.snap ? t0(x.snap.temp_c) + "°" : "–"}</span>${r && r[0] ? `<span class="pill lv${r[0]}"><i></i>${r[1]}</span>` : ""}</button>`; }).join("");
   const q0 = getQth(), mineCard = q0?.lat != null ? [{ go: qthHash(q0), name: qthLabel(q0), area: q0.detalle || "Mi ubicación", snap: snaps.__home }] : [];
   const all = [...mineCard, ...places.map((p) => ({ go: `#/forecast/${p.slug}`, name: p.name, area: p.area, snap: p.now })), ...sortedFavs().map((f) => ({ go: favHash(f), name: f.name, area: f.sub || "Mi lugar", snap: snaps[f.key] }))];
-  const cta = q0?.lat != null ? "" : `<button class="pcard cta" type="button" data-loc="go"><span class="pn">${icon("pin", 18)} Mi ubicación</span><span class="pa">Toca para usar la posición de este dispositivo y ver aquí el tiempo de donde estás.</span></button>`;
+  const cta = q0?.lat != null ? "" : `<button class="prow cta" type="button" data-loc="go"><span class="pr-n"><b>${icon("pin", 15)} Usar mi ubicación</b><span>Para ver aquí el tiempo de donde estás.</span></span></button>`;
   const draw = () => { const g = $("#pg"); if (!g) return; g.innerHTML = cta + pcards(all);
     g.querySelector("[data-loc=go]")?.addEventListener("click", () => useMyLocation(true)); g.onclick = (e) => { const b = e.target.closest("[data-go]"); if (b) location.hash = b.dataset.go; }; };
   if (places.length) draw(); else api("/api/places").then((p) => { places = p; all.push(...places.map((x) => ({ go: `#/forecast/${x.slug}`, name: x.name, area: x.area, snap: x.now }))); if (my === req) draw(); });
-  const [solar, astro, prop] = await Promise.all([api("/api/solar").catch(() => null), api(`/api/astro?lat=${at.lat}&lon=${at.lon}`).catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null)]);
+  const [solar, prop, sat] = await Promise.all([api("/api/solar").catch(() => null), api(`/api/propagation?lat=${at.lat}&lon=${at.lon}`).catch(() => null), tmo(api(`/api/satellites/passes?lat=${at.lat}&lon=${at.lon}&hours=24&min_el=30`)).catch(() => null)]);
   if (my !== req || !$("#radio-now")) return;
-  const w = prop?.peor, cat = { conducto: "lv2", "super-refracción": "lv1" }[w?.cat] || "lv0";
-  const sr = astro?.orto && new Date(astro.orto), ss = astro?.ocaso && new Date(astro.ocaso);
-  $("#radio-now").innerHTML = `
-    <div class="card"><h3>${icon("wave", 16)} Propagación</h3>
-      <div class="kv"><span>HF · Kp / SFI</span><span>${solar?.kp ?? "–"} / ${solar?.sfi ?? "–"}</span></div>
-      <div class="kv"><span>Tropo VHF/UHF (72 h)</span><span class="pill ${cat}"><i></i>${w ? esc(w.cat) : "–"}</span></div>
-      <p class="empty" style="margin-top:8px">${esc((solar?.resumen || [])[1] || "Datos de NOAA SWPC y modelos meteorológicos.")}</p></div>
-    <div class="card sunbox"><h3>${icon("sun", 16)} Sol y Luna ${qth ? "en tu QTH" : ""}</h3>
-      ${sr && ss ? sunArc(sr, ss) : ""}
-      <div class="row between" style="font-size:13px"><span>Orto <b class="num">${clock(astro.orto)}</b></span><span>Ocaso <b class="num">${clock(astro.ocaso)}</b></span></div>
-      ${astro ? `<div class="row" style="margin-top:10px;gap:12px">${moonSvg(astro.luna.edad_dias, 44)}<span style="font-size:13px">${esc(astro.luna.fase)}<br><span style="color:var(--ink-3)">${astro.luna.iluminacion_pct}% iluminada</span></span></div>` : ""}</div>`;
+  const w = prop?.peor, ps = sat?.pasos?.[0], bits = [];
+  if (solar?.kp != null) bits.push(`Kp ${nf1.format(solar.kp)}${solar.sfi != null ? `, flujo solar ${solar.sfi}` : ""}${solar.resumen?.[0] ? ` (${solar.resumen[0].toLowerCase()})` : ""}`);
+  if (w) bits.push(`tropo en VHF/UHF: ${w.cat}`);
+  if (ps) bits.push(`${ps.satelite} pasa a las ${clock(ps.aos)} (máx. ${ps.max_el}°)`);
+  $("#radio-now .hr-t").innerHTML = `<b>Radio Guilda:</b> ${bits.length ? esc(bits.join(" · ")) + "." : "propagación, repetidores, satélites y cuaderno."}`;
 }
