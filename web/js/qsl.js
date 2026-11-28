@@ -1,6 +1,7 @@
 // Cuaderno QSL: local en el dispositivo o sincronizado con la clave (API y MCP). Importa/exporta ADIF y genera tarjetas QSL.
 import { $, $$, esc, nf, LS, fromLocator, toLocator, distKm, debounce } from "./util.js";
 import { icon } from "./icons.js";
+import { seal } from "./hoy.js";
 import { syncing, call } from "./sync.js";
 import * as qslserv from "./qslserv.js";
 
@@ -68,7 +69,7 @@ export async function view(c, h) {
   ctx.colb.innerHTML = `<div class="d-head"><div><h1>Cuaderno QSL</h1><p>Registra tus contactos, marca las confirmaciones y genera tus tarjetas</p></div>
     <div class="d-actions"><button class="btn ghost sm" id="exp" type="button">${icon("download", 14)} ADIF</button><label class="btn ghost sm" style="cursor:pointer">${icon("upload", 14)} Importar ADIF<input id="imp" type="file" accept=".adi,.adif,text/plain" hidden></label></div></div>
     <p class="empty" style="margin-top:8px">${syncing() ? "Sincronizado con tu clave: también accesible por API y MCP." : `Guardado solo en este dispositivo. Activa la sincronización (icono de llave) para tenerlo en todos tus dispositivos y por API/MCP.`}</p>
-    <div id="qstats" class="stats" style="margin:18px 0"></div><div class="grid2" id="qcharts" style="margin-bottom:6px"></div>
+    <div id="qstats" class="stats" style="margin:18px 0"></div><div id="qsum" class="qsum" hidden></div><div class="grid2" id="qcharts" style="margin-bottom:6px"></div>
     <section class="sec" style="margin-top:12px"><div class="label">Nuevo contacto</div><form id="qf" class="qsl-form">
       <div class="field"><label for="f-call">Indicativo</label><input id="f-call" required maxlength="14" style="text-transform:uppercase" autocomplete="off"></div>
       <div class="field"><label for="f-when">Fecha y hora UTC</label><input id="f-when" type="datetime-local" value="${utcInput()}" required></div>
@@ -135,6 +136,15 @@ function statsPaint() {
   const q = H.getQth(), conf = rows.filter((r) => r.qsl_rcvd).length, calls = new Set(rows.map((r) => r.call)).size, grids = new Set(rows.filter((r) => r.grid).map((r) => r.grid.slice(0, 4).toUpperCase())).size;
   const far = q?.lat != null ? rows.map((r) => ({ r, p: gridPos(r.grid) })).filter((x) => x.p).map((x) => ({ d: distKm(q, x.p), c: x.r.call })).sort((a, b) => b.d - a.d)[0] : null;
   $("#qstats").innerHTML = [["QSO", rows.length], ["Confirmados", `${conf}${rows.length ? ` · ${Math.round((conf / rows.length) * 100)}%` : ""}`], ["Indicativos", calls], ["Cuadros", grids], ["Más lejano", far ? `${nf.format(far.d)} km` : "–"]].map(([l, v]) => `<div class="stat"><span class="lbl">${l}</span><span class="num">${v}</span></div>`).join("");
+  const sum = $("#qsum");
+  if (sum) {
+    const byBand = {}; rows.forEach((r) => r.band && (byBand[r.band] = (byBand[r.band] || 0) + 1));
+    const top = Object.entries(byBand).sort((a, b) => b[1] - a[1])[0], old90 = rows.filter((r) => !r.qsl_rcvd && Date.now() - new Date(r.qso_at) > 90 * 864e5).length;
+    const bits = [`${nf.format(rows.length)} contactos con ${nf.format(calls)} indicativos`, rows.length ? `${Math.round((conf / rows.length) * 100)} % confirmados` : "", top ? `la banda más trabajada es ${top[0]} (${top[1]})` : "", old90 ? `${old90} sin confirmar desde hace más de 90 días` : ""].filter(Boolean);
+    sum.hidden = !rows.length;
+    sum.innerHTML = rows.length ? `${seal("Resumen de tu cuaderno", null, "calculado en tu dispositivo, sin IA")}<p>${esc(bits.join("; "))}.</p>${ctx.ask ? '<button class="btn ai sm" type="button" id="qsum-ask">Preguntar a Guilda por mi cuaderno</button>' : ""}` : "";
+    $("#qsum-ask")?.addEventListener("click", () => ctx.ask(`Mira mi cuaderno: ${bits.join("; ")}. ¿Qué bandas o entidades me conviene trabajar estos días según la propagación?`));
+  }
   const by = (k) => { const m = {}; rows.forEach((r) => r[k] && (m[r[k]] = (m[r[k]] || 0) + 1)); return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 8); };
   const bars = (title, ic, e) => { const mx = Math.max(1, ...e.map((x) => x[1])); return `<div class="card"><h3>${icon(ic, 16)} ${title}</h3>${e.length ? e.map(([k, n]) => `<div class="hbar"><span>${esc(k)}</span><i style="width:${(n / mx) * 100}%"></i><b class="num">${n}</b></div>`).join("") : '<p class="empty">Sin datos</p>'}</div>`; };
   $("#qcharts").innerHTML = rows.length ? bars("Por banda", "wave", by("band")) + bars("Por modo", "antenna", by("mode")) : "";

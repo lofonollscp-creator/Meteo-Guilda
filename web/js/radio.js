@@ -62,6 +62,7 @@ const onMap = (fn) => (ctx.mapLoaded ? fn() : ctx.mapReady.then(fn));
 export function show(parts) {
   const id = parts[0] || "resumen", bare = !parts[0];
   sub = MENU.some((m) => m[0] === id) ? id : "resumen";
+  ctx.top?.({ page: sub === "resumen" ? "Condiciones" : MENU.find((m) => m[0] === sub)[1] });
   req++;
   $$("#menu [data-sub]").forEach((b) => b.setAttribute("aria-current", String(b.dataset.sub === sub)));
   ctx.clearMarkers(); clearLayers(); ctx.mapCtl(""); ctx.onMapClick = null; stopSat(); aprsdx.stop(); ctx.pane(bare && matchMedia("(max-width:760px)").matches ? "list" : "detail");

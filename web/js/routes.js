@@ -1,6 +1,7 @@
 import { $, $$, api, esc, nf, nf1, t0, LS, debounce, fmtMin, fmtDT, distKm, compass } from "./util.js";
 import { renderCharts, renderProfile } from "./charts.js";
 import { icon } from "./icons.js";
+import { seal } from "./hoy.js";
 import { aiOn } from "./me.js";
 
 let knots = 5, ctx, mode = "foot", wps, gpx = null, gpxName = "", depart, ia = false, picking = -1, result = null, recents = LS.get("mg-routes", []), hoverM = null, busy = false;
@@ -213,13 +214,19 @@ function paintResult() {
   ctx.colb.innerHTML = `
   <div class="d-head"><div><h1>${r.modo === "foot" ? "Ruta a pie" : "Ruta en coche"} · ${nf1.format(r.distancia_km)} km</h1><p>Salida ${esc(fmtDT(r.salida))} · llegada ${eta}</p></div>
     <div class="d-actions">${gpx ? "" : `<button class="btn ghost sm" id="rt-save" type="button">${icon("plus", 14)} Guardar ruta</button>`}<button class="btn ghost sm" id="gpx-dl" type="button">${icon("download", 14)} Descargar GPX</button></div></div>
-  <div class="badges"><span class="pill lv${r.nivel_global ?? 1}"><i></i>${esc(r.nivel_texto)}</span></div>
   <div class="summary" style="margin-top:16px">
     <div class="stat"><span class="lbl">Distancia</span><span class="num">${nf1.format(r.distancia_km)}<small>km</small></span></div>
     <div class="stat"><span class="lbl">Duración</span><span class="num" style="font-size:17px">${fmtMin(r.duracion_min)}</span></div>
     ${r.ascenso_m || r.descenso_m ? `<div class="stat"><span class="lbl">Ascenso</span><span class="num">+${nf.format(r.ascenso_m)}<small>m</small></span></div><div class="stat"><span class="lbl">Descenso</span><span class="num">−${nf.format(r.descenso_m)}<small>m</small></span></div>` : ""}
   </div>
   ${r.modo === "foot" ? '<p class="empty" style="margin-top:-6px">Duración a pie: 5 km/h + 1 h por cada 600 m de ascenso (regla de Naismith); el tuyo puede variar.</p>' : ""}
+
+  <section class="sec rt-read" aria-label="Lectura de la ruta">
+    ${seal(L ? "Lectura de IA" : "Lectura de la ruta", r.salida_por_tramos?.disponible ? null : null, L ? `${(L.modelo_ia || "").split("/").pop().replace(":free", "")} · datos a la hora de paso` : "semáforo por reglas sobre la media de modelos")}
+    <div class="rt-verdict"><span class="pill lv${r.nivel_global ?? 1}"><i></i>${esc(r.nivel_texto)}</span></div>
+    ${L ? `<p class="reading">${esc(L.resumen)}</p><div class="cols">${[["Riesgos", L.riesgos, "risk"], ["Ventanas", L.ventanas, ""], ["Recomendaciones", L.recomendaciones, ""]].map(([t, a, c]) => `<div class="${c}"><h3>${t}</h3>${a.length ? `<ul>${a.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="none">—</p>'}</div>`).join("")}</div>`
+      : `<p class="empty">Genera un briefing redactado por IA con estos datos (se comprueba que no invente cifras).</p><button class="btn ai sm" id="mk-ia" type="button" style="margin-top:10px">Generar lectura de IA</button>`}
+    <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg><span>El riesgo se calcula con reglas sobre la media de modelos; no sustituye a los avisos oficiales ni a tu criterio en montaña.</span></div></section>
 
   ${tramosHTML(r.salida_por_tramos)}
 
@@ -228,10 +235,7 @@ function paintResult() {
 
   <section class="sec"><div class="label">Recorrido <em>color = nivel de riesgo a la hora de paso</em></div><div id="profile"></div><div id="meteo"></div></section>
 
-  <section class="sec"><div class="label">Lectura ${L ? `<em>IA · ${esc((L.modelo_ia || "").split("/").pop().replace(":free", ""))}</em>` : ""}</div>
-    ${L ? `<p class="reading">${esc(L.resumen)}</p><div class="cols">${[["Riesgos", L.riesgos, "risk"], ["Ventanas", L.ventanas, ""], ["Recomendaciones", L.recomendaciones, ""]].map(([t, a, c]) => `<div class="${c}"><h3>${t}</h3>${a.length ? `<ul>${a.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="none">—</p>'}</div>`).join("")}</div>`
-      : `<p class="empty">Genera un briefing redactado por IA con estos datos (se comprueba que no invente cifras).</p><button class="btn ghost sm" id="mk-ia" type="button" style="margin-top:10px">Generar lectura de IA</button>`}
-    <div class="warn-note"><svg viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 10v4.5M12 17.5v.01"/></svg><span>El riesgo se calcula con reglas sobre la media de modelos; no sustituye a los avisos oficiales ni a tu criterio en montaña.</span></div></section>
+
 
   <section class="sec"><div class="label">Punto a punto <em>hora de paso estimada</em></div><div class="tl">
     ${ok ? S.map((s) => `<div class="tl-row"><span class="t">${timeOf(s.t)}</span><span class="lv lv${s.nivel}" title="${LV[s.nivel]}"></span><div><div class="w">km ${nf1.format(s.d_km)}${s.ele != null ? ` · ${nf.format(s.ele)} m` : ""} · ${t0(s.meteo.temp_c)}° · ${s.meteo.viento_kmh} km/h (racha ${s.meteo.racha_kmh}) ${s.meteo.viento_dir != null ? compass(s.meteo.viento_dir) : ""} · ${nf1.format(s.meteo.lluvia_mm)} mm</div>
