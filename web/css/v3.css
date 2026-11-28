@@ -424,3 +424,42 @@ th{color:var(--ink-3);font-weight:500}
 /* ---------- Ajustes (diálogo) ---------- */
 #dlg{border-radius:20px;background:var(--surface);color:var(--ink);box-shadow:0 30px 90px rgba(0,0,0,.25),var(--ring)}
 #dlg::backdrop{background:rgba(14,17,22,.45)}
+
+/* ---------- Chat: texto enriquecido de las respuestas ---------- */
+.chat .m.a .mb{font-size:15.5px;line-height:1.62;color:var(--ink)}
+.chat .mb>*:first-child{margin-top:0}
+.chat .mb>*:last-child{margin-bottom:0}
+.chat .mb p{margin:0 0 10px}
+.chat .mb strong{font-weight:600;color:var(--ink)}
+.chat .mb em{font-style:italic}
+.chat .mb del{color:var(--ink-3)}
+.chat .mb .md-h{margin:16px 0 6px;color:var(--ink);letter-spacing:-.01em}
+.chat .mb h3.md-h{font:600 17px/1.3 var(--sans)}
+.chat .mb h4.md-h{font:600 15px/1.35 var(--sans)}
+.chat .mb ul,.chat .mb ol{margin:0 0 10px;padding-left:22px}
+.chat .mb li{margin:3px 0;padding-left:2px}
+.chat .mb li::marker{color:var(--ink-3)}
+.chat .mb ol>li::marker{font-family:var(--mono);font-size:.9em}
+.chat .mb li>ul,.chat .mb li>ol{margin:4px 0 2px}
+.chat .mb li.task{list-style:none;margin-left:-20px;display:flex;gap:8px;align-items:flex-start}
+.chat .mb .md-task{flex:none;width:16px;height:16px;margin-top:4px;border-radius:4px;box-shadow:inset 0 0 0 1.5px var(--ink-4)}
+.chat .mb .md-task.ok{background:var(--ok);box-shadow:none;position:relative}
+.chat .mb .md-task.ok::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.chat .mb hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+.chat .mb blockquote{margin:0 0 10px;padding:10px 14px;border-radius:12px;background:var(--canvas);box-shadow:inset 3px 0 0 var(--ai-line);color:var(--ink-2)}
+.chat .mb blockquote p:last-child{margin:0}
+.chat .mb code{font:13px var(--mono);background:var(--canvas);box-shadow:inset 0 0 0 1px var(--line);padding:1px 6px;border-radius:6px}
+.chat .mb .md-pre{margin:0 0 10px;padding:12px 14px;border-radius:12px;background:var(--canvas);box-shadow:inset 0 0 0 1px var(--line);overflow-x:auto}
+.chat .mb .md-pre code{background:none;box-shadow:none;padding:0;font-size:12.5px;line-height:1.55;white-space:pre}
+.chat .mb a{color:var(--ai-text);text-decoration:underline;text-underline-offset:2px}
+/* tablas: cabecera marcada, rejilla suave, cifras alineadas y desplazamiento lateral si no caben */
+.chat .mb .md-table{margin:4px 0 12px;overflow-x:auto;border-radius:12px;box-shadow:inset 0 0 0 1px var(--line);background:var(--surface);-webkit-overflow-scrolling:touch}
+.chat .mb .md-table:focus-visible{outline:2px solid var(--ai);outline-offset:2px}
+.chat .mb table{border-collapse:separate;border-spacing:0;width:100%;min-width:max-content;font-size:13.5px;line-height:1.4;background:none;border-radius:0}
+.chat .mb th,.chat .mb td{padding:8px 12px;text-align:left;vertical-align:top;border:0;border-bottom:1px solid var(--line-2);white-space:normal;max-width:260px}
+.chat .mb th{background:var(--canvas);color:var(--ink-2);font-weight:600;font-size:12.5px;white-space:nowrap;position:sticky;top:0}
+.chat .mb th+th,.chat .mb td+td{border-left:1px solid var(--line-2)}
+.chat .mb tbody tr:last-child td{border-bottom:0}
+.chat .mb tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--canvas) 55%,transparent)}
+.chat .mb td.n,.chat .mb th.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chat .mb th.n{font-family:var(--sans)}
